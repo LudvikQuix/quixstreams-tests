@@ -58,6 +58,11 @@ def validate(
 
     Out of range is blocked, never clamped: a clamped write looks accepted and
     leaves the control and the plant permanently disagreeing (D1).
+
+    A write is refused the same way whether its collection is absent or its name
+    is wrong, but the *message* distinguishes them: since D9 either half of the
+    lexicon can be missing, and "the parameter configuration has not loaded" is
+    an operator's problem while "no such parameter" is the caller's.
     """
     accepted: Envelope = {"signals": {}, "parameters": {}}
     errors: list[str] = []
@@ -65,7 +70,7 @@ def validate(
     for name, raw in signals.items():
         descriptor = lexicon.descriptor("signals", name, "input")
         if descriptor is None:
-            errors.append(f"signals.{name}: not an input signal in this lexicon")
+            errors.append(f"signals.{name}: {_missing(lexicon, 'signals')}")
             continue
         ok, value = coerce(descriptor, raw)
         if not ok:
@@ -76,7 +81,7 @@ def validate(
     for name, raw in parameters.items():
         descriptor = lexicon.descriptor("parameters", name, None)
         if descriptor is None:
-            errors.append(f"parameters.{name}: not a parameter in this lexicon")
+            errors.append(f"parameters.{name}: {_missing(lexicon, 'parameters')}")
             continue
         if descriptor["tunable"] is not True:
             # D1: a fixed parameter is never writable, at any entry point.
@@ -89,6 +94,18 @@ def validate(
         accepted["parameters"][name] = value
 
     return accepted, errors
+
+
+def _missing(lexicon: LexiconSnapshot, collection: str) -> str:
+    """Why a name did not resolve: an absent configuration, or a wrong name."""
+    loaded = (
+        lexicon.signals_loaded if collection == "signals" else lexicon.parameters_loaded
+    )
+    if not loaded:
+        return f"the {collection} configuration is not loaded; nothing here is writable"
+    if collection == "signals":
+        return "not an input signal in this lexicon"
+    return "not a parameter in this lexicon"
 
 
 def _reason(descriptor: dict[str, Any], raw: Any) -> str:

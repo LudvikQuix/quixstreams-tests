@@ -1,23 +1,24 @@
 """DC battery simulator — second-order RC equivalent circuit with thermal dynamics.
 
 Publishes pack state on the output topic every SAMPLE_TIME seconds and accepts live
-signal *and* parameter writes on the input topic. `lexicon.json` is the single source
-of truth for names, datatypes and ranges: every incoming field is validated against it
-and rejected — never clamped — if it does not fit. Nothing on that path may raise; it
-runs inside `sdf.update`, where one exception takes the whole service down.
+signal *and* parameter writes on the input topic. `signals.json` and `parameters.json`
+together are the single source of truth for names, datatypes and ranges: every incoming
+field is validated against them and rejected — never clamped — if it does not fit.
+Nothing on that path may raise; it runs inside `sdf.update`, where one exception takes
+the whole service down.
 """
 
-import json
 import logging
 import math
 import os
 import threading
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 from dotenv import load_dotenv
 from quixstreams import Application
+
+from lexicon import lexicon_path, load_lexicon
 
 load_dotenv(override=False)
 
@@ -33,13 +34,13 @@ consumer_group = os.getenv("Quix__Deployment__Id", "battery-sim")
 APPLIED_ECHO_PERIOD_S = float(os.getenv("APPLIED_ECHO_PERIOD_S", "5"))
 
 # --- Lexicon: the contract every incoming write is validated against ---
-# A relative LEXICON_PATH resolves next to this file, not against the working
-# directory, so the service behaves the same from the container and from pytest.
-_lexicon_path = Path(os.getenv("LEXICON_PATH", "lexicon.json"))
-if not _lexicon_path.is_absolute():
-    _lexicon_path = Path(__file__).parent / _lexicon_path
-LEXICON_PATH = _lexicon_path
-LEXICON = json.loads(LEXICON_PATH.read_text(encoding="utf-8"))
+# Two documents since D9, because signals and parameters version independently in
+# DCM and the on-disk shape mirrors the DCM shape. `load_lexicon` merges them into
+# the single combined view the rest of this module has always read, and refuses a
+# pair whose `model.name` values disagree.
+SIGNALS_PATH = lexicon_path(os.getenv("SIGNALS_PATH"), "signals.json")
+PARAMETERS_PATH = lexicon_path(os.getenv("PARAMETERS_PATH"), "parameters.json")
+LEXICON = load_lexicon(SIGNALS_PATH, PARAMETERS_PATH)
 PARAM_SPEC = {p["name"]: p for p in LEXICON["parameters"]}
 SIGNAL_SPEC = {s["name"]: s for s in LEXICON["signals"] if s["direction"] == "input"}
 
@@ -394,8 +395,13 @@ def run_simulation(producer_app, out_topic):
             v_rc1 = p["_alpha1"] * v_rc1 + p["R1"] * (1.0 - p["_alpha1"]) * dc_current
             v_rc2 = p["_alpha2"] * v_rc2 + p["R2"] * (1.0 - p["_alpha2"]) * dc_current
 
-            # Thermal model
-            heat += (
+            # Thermal model. Every term below is a power in watts, so integrating
+            # them into `heat` (joules) carries the same `* SAMPLE_TIME` factor as
+            # the Coulomb counting above: W × s = J. Without it the whole thermal
+            # model advances once per *tick* instead of per *second* — 10× too fast
+            # at the default 0.1 s — and KT2/KE stop matching the per-second rates
+            # README's "Derived thermal parameter values" derives them from.
+            heat_flow_w = (
                 p["KT2"] * dc_current**2
                 + p["KT1"] * dc_current
                 + p["KT0"]
@@ -403,6 +409,7 @@ def run_simulation(producer_app, out_topic):
                 + power_heater
                 - power_chiller
             )
+            heat += heat_flow_w * SAMPLE_TIME
             temperature = p["A_THERMAL"] * heat
 
             # Temperature saturation. The lower clamp keys off the chiller's actual
@@ -465,7 +472,13 @@ def supervise_simulation(producer_app, out_topic, consumer_app):
 
 def log_startup():
     """Effective configuration, so the deployment log shows what actually loaded."""
-    logger.info("[STARTUP] lexicon: %s (v%s)", LEXICON_PATH, LEXICON["lexicon_version"])
+    logger.info(
+        "[STARTUP] lexicon v%s model=%s: signals=%s parameters=%s",
+        LEXICON["lexicon_version"],
+        LEXICON["model"]["name"],
+        SIGNALS_PATH,
+        PARAMETERS_PATH,
+    )
     logger.info(
         "[STARTUP] topics: in=%s out=%s consumer_group=%s",
         input_topic_name,

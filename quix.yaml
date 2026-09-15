@@ -10,7 +10,8 @@
 # DEPLOY ORDER: MongoDB first, then the Dynamic Configuration Manager (it cannot
 # authenticate until Mongo is up and the `mongo_password` workspace secret exists),
 # then dc-battery-sim. The sim does not depend on the DCM today - it reads its own
-# lexicon.json from disk (CLAUDE.md D3) - so it can start at any point.
+# signals.json / parameters.json from disk (CLAUDE.md D3) - so it can start at any
+# point.
 
 metadata:
   version: 2.0
@@ -129,9 +130,15 @@ deployments:
         inputType: OutputTopic
         required: true
         value: dashboard-out
-      - name: LEXICON_PATH
+      # Two documents since D9 - signals and parameters version independently in
+      # DCM, so the sim's own source of truth is two files with the same shape.
+      # Their model.name values must agree or the service refuses to start.
+      - name: SIGNALS_PATH
         inputType: FreeText
-        value: lexicon.json
+        value: signals.json
+      - name: PARAMETERS_PATH
+        inputType: FreeText
+        value: parameters.json
       - name: LOG_LEVEL
         inputType: FreeText
         value: INFO
@@ -268,7 +275,7 @@ deployments:
         required: true
         value: dashboard-in
       # NOT the lexicon's model.name ("dc-battery-sim"): the sim keys its messages
-      # "battery-sim" (main.py:430). Until lexicon v1.1 carries model.instance_key
+      # "battery-sim" (main.py:449). Until lexicon v1.1 carries model.instance_key
       # this is the one piece of the plant contract that lives in a variable.
       - name: PLANT_KEY
         inputType: FreeText
@@ -279,12 +286,21 @@ deployments:
         inputType: FreeText
         required: true
         value: http://config-api-svc
-      - name: LEXICON_TYPE
+      # Two DCM configurations, not one (D9). Parameters are tuned constantly and
+      # signals change only when the plant's interface does, so a combined config
+      # made every tuning write bump the signal lexicon's version too. Either can
+      # be absent: the dashboard degrades to that half and says which is missing.
+      - name: SIGNALS_TYPE
         inputType: FreeText
         required: true
-        value: sil-lexicon
-      # The one variable that names the plant. Swapping the model means seeding a
-      # new lexicon and changing this and PLANT_KEY - no dashboard code changes.
+        value: sil-signals
+      - name: PARAMETERS_TYPE
+        inputType: FreeText
+        required: true
+        value: sil-parameters
+      # The one variable that names the plant, and the target_key of BOTH
+      # configurations. Swapping the model means seeding a new pair and changing
+      # this and PLANT_KEY - no dashboard code changes.
       - name: LEXICON_TARGET_KEY
         inputType: FreeText
         required: true
@@ -295,15 +311,20 @@ deployments:
       - name: LEXICON_BOOT_TIMEOUT_S
         inputType: FreeText
         value: "60"
-      # Self-starting: with an empty DCM the dashboard POSTs its bundled copy of
-      # dc-battery-sim/lexicon.json once (create-only, never a replace) and reads
-      # it straight back. Flip to "false" once the DCM is the managed source.
+      # Self-starting: for each configuration the DCM does not have, the dashboard
+      # POSTs its bundled copy of the matching dc-battery-sim document once
+      # (create-only, never a replace) and reads it straight back. The two seed
+      # independently - neither waits on the other. Flip to "false" once the DCM
+      # is the managed source.
       - name: LEXICON_SEED_ENABLED
         inputType: FreeText
         value: "true"
-      - name: LEXICON_SEED_PATH
+      - name: SIGNALS_SEED_PATH
         inputType: FreeText
-        value: seed/lexicon.json
+        value: seed/signals.json
+      - name: PARAMETERS_SEED_PATH
+        inputType: FreeText
+        value: seed/parameters.json
       - name: HISTORY_SECONDS
         inputType: FreeText
         value: "60"

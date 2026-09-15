@@ -13,8 +13,10 @@ export interface RuntimeConfig {
 
 /**
  * A failed /api call, with the backend's own explanation attached. The lexicon
- * 503 answers with `{detail, lexicon_type, lexicon_target_key, …}`; a bare
- * status code would leave the empty-state page guessing why it is empty.
+ * 503 answers with `{detail, lexicon_target_key, signals: {...}, parameters:
+ * {...}}` — one state object per DCM configuration, because either can be the
+ * one that is missing; a bare status code would leave the empty-state page
+ * guessing why it is empty.
  */
 export class ApiError extends Error {
   readonly status: number

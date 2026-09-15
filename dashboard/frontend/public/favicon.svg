@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!--
+    SIL Dashboard favicon: a square-wave pulse mark.
+    Reads as "signal / telemetry" at 16×16 — the smallest size a favicon renders.
+    Monochrome stroke inverts between light and dark browser chrome via the
+    embedded prefers-color-scheme media query, so one file serves both themes.
+
+    Light chrome  → #1a1a1a stroke on transparent (browser renders over white tab)
+    Dark chrome   → #eaedf0 stroke on transparent (browser renders over dark tab)
+
+    Derived from globals.css:
+      light: --foreground 222.2 84% 4.9% ≈ #0c1526; rounded to #1a1a1a for clarity
+      dark:  --foreground 210 8% 92% → #eaedf0 (as commented in globals.css)
+  -->
+  <style>
+    .mark { stroke: #1a1a1a; }
+    @media (prefers-color-scheme: dark) {
+      .mark { stroke: #eaedf0; }
+    }
+  </style>
+  <path
+    class="mark"
+    d="M2 16 L8 16 L8 8 L16 8 L16 16 L22 16"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

@@ -1,0 +1,17 @@
+{
+  "name": "SIL Dashboard",
+  "short_name": "SIL Dash",
+  "description": "Configurable real-time grid for software-in-the-loop plant simulation — charts, readouts and controls.",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0064ff",
+  "background_color": "#1a1a1a",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ]
+}

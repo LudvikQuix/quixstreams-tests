@@ -113,7 +113,8 @@ dashboard-tests/
 ├── .env                       ← Quix creds (gitignored; .env.example is the template)
 ├── mongodb/                   ← backing store for the DCM
 ├── dc-battery-sim/            ← the blackbox SIL plant
-│   ├── lexicon.json           ← its signal/parameter lexicon
+│   ├── signals.json           ← signal lexicon   (DCM type `sil-signals`)
+│   ├── parameters.json        ← parameter lexicon (DCM type `sil-parameters`)
 │   └── tests/                 ← pytest suite
 └── dev-planning/<feature>/    ← spec.md, architecture.md, reports
 ```
@@ -190,7 +191,8 @@ fits an enricher, not an element picker that needs a plain request/response read
 No RocksDB round-trip either — the lexicon is small, read-mostly, and already
 durable in DCM, so the `quix-rocksdb-state-api` pattern buys nothing here.
 
-`dc-battery-sim` keeps reading its own `lexicon.json` from disk; it never calls DCM.
+`dc-battery-sim` keeps reading its own `signals.json` / `parameters.json` from disk;
+it never calls DCM.
 
 ### D4 — The dashboard frontend reuses TestManager's stack (2026-09-15)
 

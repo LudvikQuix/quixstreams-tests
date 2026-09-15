@@ -28,16 +28,24 @@ variables:
     description: Cluster-internal DCM service name. The lexicon is read from here (D3).
     defaultValue: http://config-api-svc
     required: true
-  - name: LEXICON_TYPE
+  - name: SIGNALS_TYPE
     inputType: FreeText
-    description: DCM configuration type holding the lexicon.
-    defaultValue: sil-lexicon
+    description: >-
+      DCM configuration type holding the signal lexicon. Separate from the
+      parameters (D9) so the two version independently.
+    defaultValue: sil-signals
+    required: true
+  - name: PARAMETERS_TYPE
+    inputType: FreeText
+    description: DCM configuration type holding the parameter lexicon.
+    defaultValue: sil-parameters
     required: true
   - name: LEXICON_TARGET_KEY
     inputType: FreeText
     description: >-
-      DCM target_key of the lexicon — the plant model name (`dc-battery-sim`).
-      The one variable that names the plant; changing it swaps the model.
+      DCM target_key of BOTH lexicon configurations — the plant model name
+      (`dc-battery-sim`). The one variable that names the plant; changing it
+      swaps the model.
     defaultValue: dc-battery-sim
     required: true
   - name: LEXICON_REFRESH_S
@@ -55,15 +63,21 @@ variables:
   - name: LEXICON_SEED_ENABLED
     inputType: FreeText
     description: >-
-      Write the bundled lexicon to the DCM when the DCM holds none. Create-only:
-      an existing configuration is never overwritten. Set to `false` once the DCM
-      is the managed source and nobody should be writing a lexicon from an image.
+      Write a bundled document to the DCM when the DCM holds none. Applies to
+      both configurations, each seeded independently. Create-only: an existing
+      configuration is never overwritten. Set to `false` once the DCM is the
+      managed source and nobody should be writing a lexicon from an image.
     defaultValue: "true"
     required: false
-  - name: LEXICON_SEED_PATH
+  - name: SIGNALS_SEED_PATH
     inputType: FreeText
-    description: The bundled copy used for that seed, relative to /app in the image.
-    defaultValue: seed/lexicon.json
+    description: Bundled signal document used for that seed, relative to /app in the image.
+    defaultValue: seed/signals.json
+    required: false
+  - name: PARAMETERS_SEED_PATH
+    inputType: FreeText
+    description: Bundled parameter document used for that seed, relative to /app in the image.
+    defaultValue: seed/parameters.json
     required: false
   - name: HISTORY_SECONDS
     inputType: FreeText

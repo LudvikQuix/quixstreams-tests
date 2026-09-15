@@ -35,6 +35,12 @@ export interface LexiconModel {
   version: string
 }
 
+/**
+ * The merged view. Signals and parameters are two independently versioned DCM
+ * configurations (D9); the backend merges whichever it has, so either array can
+ * be empty because its configuration is missing rather than because the plant
+ * has none. `CollectionState.loaded` is the only thing that tells those apart.
+ */
 export interface LexiconDocument {
   lexicon_version: string
   model: LexiconModel
@@ -42,11 +48,25 @@ export interface LexiconDocument {
   parameters: Descriptor[]
 }
 
+/** One DCM configuration's own state, as the backend reports it. */
+export interface CollectionState {
+  loaded: boolean
+  rev: number
+  type: string
+  target_key: string
+  config_id: string
+  count: number
+  seeded_by_this_pod: boolean
+  error: string | null
+}
+
 export interface LexiconResponse {
   rev: number
   sha256: string
   fetched_at: number
   document: LexiconDocument
+  signals: CollectionState
+  parameters: CollectionState
 }
 
 /** A descriptor plus where it came from — enough to render a picker row. */

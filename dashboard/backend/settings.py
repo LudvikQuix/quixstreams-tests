@@ -43,12 +43,14 @@ class Settings:
     plant_key: str
     config_api_url: str
     sdk_token: str
-    lexicon_type: str
+    signals_type: str
+    parameters_type: str
     lexicon_target_key: str
     lexicon_refresh_s: float
     lexicon_boot_timeout_s: float
     lexicon_seed_enabled: bool
-    lexicon_seed_path: str
+    signals_seed_path: str
+    parameters_seed_path: str
     history_seconds: float
     history_max_samples: int
     ws_flush_hz: float
@@ -69,12 +71,14 @@ class Settings:
             plant_key=os.environ["PLANT_KEY"],
             config_api_url=os.environ["CONFIG_API_URL"].rstrip("/"),
             sdk_token=os.environ.get("Quix__Sdk__Token", ""),
-            lexicon_type=_str("LEXICON_TYPE", "sil-lexicon"),
+            signals_type=_str("SIGNALS_TYPE", "sil-signals"),
+            parameters_type=_str("PARAMETERS_TYPE", "sil-parameters"),
             lexicon_target_key=os.environ["LEXICON_TARGET_KEY"],
             lexicon_refresh_s=_float("LEXICON_REFRESH_S", 900.0),
             lexicon_boot_timeout_s=_float("LEXICON_BOOT_TIMEOUT_S", 60.0),
             lexicon_seed_enabled=_bool("LEXICON_SEED_ENABLED", True),
-            lexicon_seed_path=_str("LEXICON_SEED_PATH", "seed/lexicon.json"),
+            signals_seed_path=_str("SIGNALS_SEED_PATH", "seed/signals.json"),
+            parameters_seed_path=_str("PARAMETERS_SEED_PATH", "seed/parameters.json"),
             history_seconds=_float("HISTORY_SECONDS", 60.0),
             history_max_samples=_int("HISTORY_MAX_SAMPLES", 6000),
             ws_flush_hz=_float("WS_FLUSH_HZ", 10.0),

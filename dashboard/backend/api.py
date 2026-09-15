@@ -62,17 +62,29 @@ def create_app(
     @app.get("/api/healthz", include_in_schema=False)
     @app.get("/healthz")
     def healthz() -> JSONResponse:
-        """Liveness, plus an honest account of the lexicon.
+        """Liveness, plus an honest account of both lexicon configurations.
 
         200 even with no lexicon, deliberately: the process is up, it is serving
         the page, and it can be seeded where it stands. A 503 here cannot be
         told apart from the ingress's own 503 for "no pod is running", which is
-        precisely the confusion the old boot-time SystemExit produced. The
-        lexicon verdict lives in the body - `lexicon_loaded` plus
-        `lexicon_error` - where a probe can act on it without guessing.
+        precisely the confusion the old boot-time SystemExit produced.
+
+        `status` is three-valued since D9, because two independently versioned
+        configurations have three outcomes and not two: `ok` (both in hand),
+        `partial` (one of them, so the dashboard runs with that half only), and
+        `degraded` (neither, or a pair that cannot be merged). A probe that only
+        understands up/down still gets `lexicon_loaded`; one that needs to know
+        which half is missing reads `signals` and `parameters`.
         """
+        snapshot = lexicon.snapshot()
+        if snapshot is None:
+            status = "degraded"
+        elif snapshot.signals_loaded and snapshot.parameters_loaded:
+            status = "ok"
+        else:
+            status = "partial"
         body = {
-            "status": "ok" if lexicon.snapshot() else "degraded",
+            "status": status,
             "window_rows": window.rows(),
             "dropped_frames": hub.total_dropped,
             **lexicon.state(),
@@ -96,12 +108,19 @@ def create_app(
             state = lexicon.state()
             detail = state["lexicon_error"] or "lexicon not loaded yet"
             return JSONResponse({"detail": detail, **state}, status_code=503)
+        # The two per-configuration states ride along on the success answer too,
+        # not only on the 503: a document with `parameters: []` is a perfectly
+        # valid lexicon, and only `parameters.loaded` tells the page whether the
+        # controls are missing or the plant simply has none.
+        state = lexicon.state()
         return JSONResponse(
             {
                 "rev": snapshot.rev,
                 "sha256": snapshot.sha256,
                 "fetched_at": snapshot.fetched_at,
                 "document": snapshot.document,
+                "signals": state["signals"],
+                "parameters": state["parameters"],
             }
         )
 

@@ -11,10 +11,19 @@ variables:
     description: Battery telemetry topic read by the dashboard
     defaultValue: dashboard-out
     required: true
-  - name: LEXICON_PATH
+  - name: SIGNALS_PATH
     inputType: FreeText
-    description: Path to the signal/parameter lexicon. Also the seam for sourcing it from DCM later.
-    defaultValue: lexicon.json
+    description: >-
+      Path to the signal lexicon. Signals and parameters are two independently
+      versioned documents (D9), so they are two files here too.
+    defaultValue: signals.json
+    required: false
+  - name: PARAMETERS_PATH
+    inputType: FreeText
+    description: >-
+      Path to the parameter lexicon. Its `model.name` must match the signal
+      document's — the service refuses to start on a mismatched pair.
+    defaultValue: parameters.json
     required: false
   - name: LOG_LEVEL
     inputType: FreeText

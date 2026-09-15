@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useTelemetryVersion } from "@/lib/hooks/use-telemetry"
+import type { CollectionState } from "@/lib/lexicon/types"
 import {
   DashboardProvider,
   useDashboard,
@@ -77,6 +78,19 @@ function Shell(): JSX.Element {
         <Badge variant={connectionTone}>{store.connection}</Badge>
         {store.status.telemetry_stale ? <Badge variant="warning">no telemetry</Badge> : null}
         {store.dropped > 0 ? <Badge variant="outline">lagging ({store.dropped})</Badge> : null}
+        {/* Half a lexicon is a usable dashboard, but only if it admits which
+            half it is missing — otherwise an absent parameter configuration
+            reads as a plant with no tunables and the picker just looks empty. */}
+        {!lexicon.parameters.loaded ? (
+          <Badge variant="warning" title={lexicon.parameters.error ?? undefined}>
+            no parameters · read-only
+          </Badge>
+        ) : null}
+        {!lexicon.signals.loaded ? (
+          <Badge variant="warning" title={lexicon.signals.error ?? undefined}>
+            no signals · no telemetry bindings
+          </Badge>
+        ) : null}
 
         <Separator orientation="vertical" className="hidden h-6 sm:block" />
 
@@ -122,9 +136,12 @@ function Shell(): JSX.Element {
  * The "no lexicon" empty state. Structure and affordances only — the visual
  * pass is separate.
  *
- * It says which configuration is missing, because the fix is a DCM write and
- * the type/target_key pair is what the operator needs to make it. It never
- * claims the dashboard is down: the dashboard is what is rendering this.
+ * It says which configurations are missing, because the fix is a DCM write and
+ * the type/target_key pair is what the operator needs to make it. Since D9
+ * there are two of them and they fail independently, so each gets its own row:
+ * "signals present, parameters 403" and "both unreachable" want different
+ * actions. It never claims the dashboard is down: the dashboard is what is
+ * rendering this.
  */
 function NoLexicon({
   error,
@@ -139,9 +156,9 @@ function NoLexicon({
 
   const state = error.state ?? {}
   const facts: Array<[string, string]> = [
-    ["config type", String(state.lexicon_type ?? "—")],
     ["target key", String(state.lexicon_target_key ?? "—")],
-    ["configuration id", String(state.lexicon_config_id ?? "—")],
+    ["signals", configFact(state.signals)],
+    ["parameters", configFact(state.parameters)],
     ["seeding", state.lexicon_seed_enabled === false ? "disabled" : "enabled"],
     ["DCM token", state.dcm_token_present === false ? "missing" : "present"],
   ]
@@ -182,4 +199,18 @@ function NoLexicon({
       </div>
     </main>
   )
+}
+
+/**
+ * One fact-list row for one DCM configuration. The 503 body is untyped — it is
+ * whatever the backend sent — so every field is narrowed before it is read, and
+ * a shape this page does not recognise degrades to a dash rather than throwing
+ * inside the very component that exists to explain a failure.
+ */
+function configFact(raw: unknown): string {
+  if (typeof raw !== "object" || raw === null) return "—"
+  const state = raw as Partial<CollectionState>
+  const label = `${state.type ?? "?"} → ${state.config_id ?? "?"}`
+  if (state.loaded) return `${label} · rev ${state.rev ?? 0} · ${state.count ?? 0} entries`
+  return `${label} · ${state.error ?? "not loaded"}`
 }

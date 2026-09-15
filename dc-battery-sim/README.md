@@ -10,7 +10,7 @@ A discrete-time second-order RC equivalent circuit battery simulation running as
 dashboard-in  ──►  DC Battery Sim  ──►  dashboard-out
 ```
 
-Two kinds of write arrive on `dashboard-in`: **signals** (setpoints such as `requested_power_w`) and **parameters** (model constants such as `KE` or `TAU2`). Sixteen of the eighteen parameters are tunable live; the other two are fixed at deploy time. `lexicon.json`, shipped next to `main.py`, describes every name, datatype and range and is what the service validates incoming writes against.
+Two kinds of write arrive on `dashboard-in`: **signals** (setpoints such as `requested_power_w`) and **parameters** (model constants such as `KE` or `TAU2`). Sixteen of the eighteen parameters are tunable live; the other two are fixed at deploy time. `signals.json` and `parameters.json`, shipped next to `main.py`, describe every name, datatype and range and are what the service validates incoming writes against. They are two files rather than one because the dashboard publishes them to DCM as two independently versioned configurations (CLAUDE.md D9); the sim merges them at import and refuses to start if their `model.name` values disagree.
 
 The simulator models:
 - **Electrochemical state** — charge counting (Coulomb counting) with OCV look-up
@@ -98,13 +98,15 @@ OCV = 720 + (840 - 720) × SOC
 ### Thermal Model
 
 ```
-HeatDiff  = kt2 × I_dc²  +  kt1 × I_dc  +  kt0
-          - ke × (T_battery - T_ambient)
-          + P_heater  -  P_chiller
+HeatFlow  = kt2 × I_dc²  +  kt1 × I_dc  +  kt0        [W]
+          - ke × (T_battery - T_ambient)              [W]
+          + P_heater  -  P_chiller                    [W]
 
-Heat      = Heat_prev + HeatDiff        [J]
-T_battery = A × Heat                   [°C]
+Heat      = Heat_prev + HeatFlow × sample_time        [J]   (W × s = J)
+T_battery = A × Heat                                  [°C]
 ```
+
+Every term of `HeatFlow` is a **power**: `kt2` is W/A², `kt1` W/A, and `kt0`, `ke·ΔT`, `P_heater`, `P_chiller` are watts outright. Integrating watts into a joule accumulator therefore needs `× sample_time` — the same factor Coulomb counting carries two sections above, and the reason the [derived values](#derived-thermal-parameter-values) below are **per-second** rates rather than per-tick ones. At the default `SAMPLE_TIME = 0.1 s`, `|I| = 300 A` raises the pack 0.5 °C per *second*, i.e. 0.05 °C per tick.
 
 `P_heater` and `P_chiller` are not constants: the `heater_setting` / `chiller_setting` signals pick a stage and the four tunable `*_POWER_*` parameters say what that stage delivers — see [Chiller / Heater power map](#chiller--heater-power-map).
 
@@ -143,7 +145,7 @@ Default LUT (linear interpolation between anchor points):
 
 Every environment variable below supplies the **startup baseline**. A **tunable** parameter can then be rewritten live over `dashboard-in`; a **fixed** one cannot, because changing it mid-run would break simulation continuity. A restart returns every tunable to its deployment baseline — that is intentional, the deployment defines the known-good starting point.
 
-The `Range` column is the validation contract enforced by `lexicon.json`. A write outside it is **rejected and logged, never clamped**.
+The `Range` column is the validation contract enforced by `parameters.json`. A write outside it is **rejected and logged, never clamped**.
 
 | Env Var | Default | Tunable | Range | Description |
 |---|---|---|---|---|
@@ -176,7 +178,8 @@ The `Range` column is the validation contract enforced by `lexicon.json`. A writ
 |---|---|---|
 | `input` | `dashboard-in` | Command topic. `app.yaml` default; `main.py`'s own fallback if the variable is unset entirely is still `ui-data`. |
 | `output` | `dashboard-out` | Telemetry topic. Same: `main.py`'s bare fallback is `battery-data`. |
-| `LEXICON_PATH` | `lexicon.json` | Signal/parameter lexicon. A relative path resolves next to `main.py`. Also the seam for sourcing the document from DCM later. |
+| `SIGNALS_PATH` | `signals.json` | Signal lexicon. A relative path resolves next to `main.py`. |
+| `PARAMETERS_PATH` | `parameters.json` | Parameter lexicon. Its `model.name` must match the signal document's — the service raises at import on a mismatched pair. |
 | `LOG_LEVEL` | `INFO` | `DEBUG` emits the full payload every tick (10 lines/s). Rejection warnings and accepted-write lines are `WARNING`/`INFO`. |
 | `APPLIED_ECHO_PERIOD_S` | `5` | Heartbeat period for the `applied` block on the output topic. |
 

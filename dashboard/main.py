@@ -12,9 +12,10 @@ earned: a daemon thread dying silently left the deployment green while it served
 a frozen page. On any worker exception we log CRITICAL and stop the Application
 so __main__ can exit non-zero and the platform restarts the pod.
 
-A missing lexicon is NOT one of those exceptions. The service boots without one,
-seeds the DCM from the bundled copy when the DCM is empty, and keeps retrying in
-the background; /healthz and /api/lexicon report the degraded state honestly.
+A missing lexicon is NOT one of those exceptions. The lexicon is two independent
+DCM configurations (D9), and either can be absent: the service boots without
+them, seeds each empty one from its bundled copy, keeps retrying in the
+background, and reports both revisions and both failures separately on /healthz.
 Exiting instead is what made an un-seeded DCM an undeployable dashboard.
 """
 
@@ -145,21 +146,31 @@ def log_startup() -> None:
         settings.consumer_group,
     )
     logger.info(
-        "[STARTUP] lexicon: type=%s target=%s id=%s rev=%s model=%s",
-        settings.lexicon_type,
+        "[STARTUP] lexicon: target=%s rev=%s model=%s",
         settings.lexicon_target_key,
-        lexicon.config_id,
         snapshot.rev if snapshot else 0,
         snapshot.model_name if snapshot else "<none>",
     )
-    if snapshot is None:
+    # One line per DCM configuration (D9). They load and fail independently, so
+    # a single "lexicon ok" line would hide the case this split makes possible:
+    # signals in hand, parameters absent, controls quietly unavailable.
+    for config in lexicon.configs:
+        state = config.state()
+        logger.info(
+            "[STARTUP]   %s id=%s rev=%s entries=%s%s",
+            config.label,
+            config.config_id,
+            state["rev"],
+            state["count"],
+            "" if state["loaded"] else f" MISSING: {state['error']}",
+        )
+    if snapshot is None or not (snapshot.signals_loaded and snapshot.parameters_loaded):
         # Not a fatal line, but the first one anyone will look for: the page
-        # will render an empty state until this clears.
+        # renders an empty or read-only state until this clears.
         logger.warning(
-            "[STARTUP] DEGRADED - no lexicon. seed_enabled=%s seed_path=%s "
-            "dcm=%s token=%s. Retrying in the background.",
+            "[STARTUP] DEGRADED - seed_enabled=%s dcm=%s token=%s. "
+            "Retrying in the background.",
             settings.lexicon_seed_enabled,
-            settings.lexicon_seed_path,
             settings.config_api_url,
             "present" if settings.sdk_token else "MISSING",
         )

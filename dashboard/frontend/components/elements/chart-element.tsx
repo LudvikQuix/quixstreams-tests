@@ -32,6 +32,12 @@ function cssVar(name: string): string {
   return `hsl(${raw})`
 }
 
+/** Read a CSS custom property and return an hsl() colour string with an alpha channel. */
+function cssVarAlpha(name: string, alpha: number): string {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return `hsl(${raw} / ${alpha})`
+}
+
 export function ChartElement({ series, options }: ChartElementProps): JSX.Element {
   const { store } = useDashboard()
   const { resolvedTheme } = useTheme()
@@ -45,8 +51,14 @@ export function ChartElement({ series, options }: ChartElementProps): JSX.Elemen
     const hintMin = options.y_min ?? series[0]?.descriptor.min ?? null
     const hintMax = options.y_max ?? series[0]?.descriptor.max ?? null
 
+    const isDark = resolvedTheme === "dark"
     const axisStroke = cssVar("--muted-foreground")
-    const gridStroke = cssVar("--border")
+    // Gridlines are reference, not content: they should recede behind data.
+    // --border in light mode (87.4% L) vanishes at the same low alpha that
+    // tames it in dark mode (26% L), so each theme gets its own alpha.
+    const gridStroke = cssVarAlpha("--border", isDark ? 0.35 : 0.70)
+    // Tick marks sit slightly stronger than gridlines to preserve axis legibility.
+    const tickStroke = cssVarAlpha("--border", isDark ? 0.55 : 0.85)
 
     const plot = new uPlot(
       {
@@ -72,14 +84,18 @@ export function ChartElement({ series, options }: ChartElementProps): JSX.Elemen
         },
         axes: [
           {
+            // x-axis (time): tick marks only. Vertical gridlines add visual noise
+            // to a time series — readers interpolate time by proximity, not by
+            // tracing a vertical rule to the axis.
             stroke: axisStroke,
-            ticks: { stroke: gridStroke, width: 1 },
-            grid: { stroke: gridStroke, width: 1 },
+            ticks: { stroke: tickStroke, width: 1 },
+            grid: { show: false },
           },
           {
+            // y-axis: horizontal reference gridlines at low alpha so they recede.
             label: series[0]?.descriptor.unit ?? undefined,
             stroke: axisStroke,
-            ticks: { stroke: gridStroke, width: 1 },
+            ticks: { stroke: tickStroke, width: 1 },
             grid: { stroke: gridStroke, width: 1 },
           },
         ],
