@@ -116,6 +116,26 @@ variables:
     description: "Hard upper saturation for battery temperature in °C. Startup default; tunable live over `dashboard-in`."
     defaultValue: "60"
     required: false
+  - name: CHILLER_POWER_LOW
+    inputType: FreeText
+    description: "Heat removed in W while `chiller_setting` is 1. Setting 0 is always 0 W. Startup default; tunable live over `dashboard-in`."
+    defaultValue: "2500"
+    required: false
+  - name: CHILLER_POWER_HIGH
+    inputType: FreeText
+    description: "Heat removed in W while `chiller_setting` is 2. Startup default; tunable live over `dashboard-in`."
+    defaultValue: "5000"
+    required: false
+  - name: HEATER_POWER_LOW
+    inputType: FreeText
+    description: "Heat added in W while `heater_setting` is 1. Setting 0 is always 0 W. Startup default; tunable live over `dashboard-in`."
+    defaultValue: "2500"
+    required: false
+  - name: HEATER_POWER_HIGH
+    inputType: FreeText
+    description: "Heat added in W while `heater_setting` is 2. Startup default; tunable live over `dashboard-in`."
+    defaultValue: "5000"
+    required: false
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py

@@ -10,7 +10,7 @@ A discrete-time second-order RC equivalent circuit battery simulation running as
 dashboard-in  ──►  DC Battery Sim  ──►  dashboard-out
 ```
 
-Two kinds of write arrive on `dashboard-in`: **signals** (setpoints such as `requested_power_w`) and **parameters** (model constants such as `KE` or `TAU2`). Twelve of the fourteen parameters are tunable live; the other two are fixed at deploy time. `lexicon.json`, shipped next to `main.py`, describes every name, datatype and range and is what the service validates incoming writes against.
+Two kinds of write arrive on `dashboard-in`: **signals** (setpoints such as `requested_power_w`) and **parameters** (model constants such as `KE` or `TAU2`). Sixteen of the eighteen parameters are tunable live; the other two are fixed at deploy time. `lexicon.json`, shipped next to `main.py`, describes every name, datatype and range and is what the service validates incoming writes against.
 
 The simulator models:
 - **Electrochemical state** — charge counting (Coulomb counting) with OCV look-up
@@ -106,6 +106,8 @@ Heat      = Heat_prev + HeatDiff        [J]
 T_battery = A × Heat                   [°C]
 ```
 
+`P_heater` and `P_chiller` are not constants: the `heater_setting` / `chiller_setting` signals pick a stage and the four tunable `*_POWER_*` parameters say what that stage delivers — see [Chiller / Heater power map](#chiller--heater-power-map).
+
 After integration, temperature is saturated:
 
 | Condition | Effect |
@@ -159,6 +161,10 @@ The `Range` column is the validation contract enforced by `lexicon.json`. A writ
 | `R2` | `0.05` | yes | 0 – 0.5 | RC2 branch resistance (Ω). Set 0 to disable RC2 dynamics. |
 | `COOLANT_TEMP` | `20.0` | yes | −20 – 40 | Coolant temperature (°C) — lower bound for battery temperature when the chiller is running |
 | `MAX_BATTERY_TEMP` | `60.0` | yes | 25 – 60 | Hard upper saturation for battery temperature (°C). Capped at 60 because the derating LUT returns 0 at and above 60 °C. |
+| `CHILLER_POWER_LOW` | `2500.0` | yes | 0 – 20 000 | Heat removed (W) while `chiller_setting` is 1. At 0 the stage is a no-op and no longer engages the `COOLANT_TEMP` clamp. |
+| `CHILLER_POWER_HIGH` | `5000.0` | yes | 0 – 20 000 | Heat removed (W) while `chiller_setting` is 2 |
+| `HEATER_POWER_LOW` | `2500.0` | yes | 0 – 20 000 | Heat added (W) while `heater_setting` is 1 |
+| `HEATER_POWER_HIGH` | `5000.0` | yes | 0 – 20 000 | Heat added (W) while `heater_setting` is 2 |
 | `REQUESTED_POWER` | `-8000` | — | ±250 000 | Initial power request (W) — signal, written live over `dashboard-in` as `requested_power_w` |
 | `AMBIENT_TEMP` | `15` | — | −40 – 60 | Initial ambient temperature (°C) — signal, written live as `ambient_temp_c` |
 | `CHILLER_SETTING` | `0` | — | 0 / 1 / 2 | Initial chiller state — signal, written live as `chiller_setting` |
@@ -176,11 +182,17 @@ The `Range` column is the validation contract enforced by `lexicon.json`. A writ
 
 ### Chiller / Heater power map
 
-| Setting | Power |
-|---|---|
-| `0` | 0 W (off) |
-| `1` | 2 500 W (low) |
-| `2` | 5 000 W (high) |
+The `chiller_setting` / `heater_setting` signals choose a **stage**; four tunable parameters decide what each stage is worth. The map is rebuilt from the parameter snapshot on every tick, so a live write to any of them changes the thermal integration from the next tick onwards.
+
+| Setting | Chiller removes | Heater adds |
+|---|---|---|
+| `0` | 0 W | 0 W |
+| `1` | `CHILLER_POWER_LOW` (default 2 500 W) | `HEATER_POWER_LOW` (default 2 500 W) |
+| `2` | `CHILLER_POWER_HIGH` (default 5 000 W) | `HEATER_POWER_HIGH` (default 5 000 W) |
+
+Setting `0` is 0 W by definition of "off" and has no parameter. The `0 – 20 000 W` range is roughly four times the shipped high stage and comfortably out-cools the pack's own worst-case ohmic self-heating (`KT2 × I²` ≈ 4.4 kW at the default `KT2` and the ±400 A edge of `dc_current_a`), while keeping the default at an eighth of a slider's travel rather than lost near zero. Production pack chillers and heaters sit in the 3 – 10 kW band, so there is nothing credible above it.
+
+Nothing enforces `LOW ≤ HIGH` — the lexicon validates each field on its own. Inverting them simply makes stage 1 the stronger one; the model does not care.
 
 ### Derived RC parameter values
 
@@ -209,7 +221,7 @@ The default `KT2` and `KE` values were derived from three constraints:
 
 `KT0 = 0`, `KT1 = 0` — no constant heat term; heating is symmetric for charge and discharge.
 
-> **Note:** an env var, when set, wins over the lexicon default — `load_dotenv(override=False)` only protects already-set shell variables, not the fallback chain. If `.env` or the deployment carries a stale `KT2`/`KE`, that value is what runs. The `[STARTUP]` log block prints the effective value of all 14 parameters for exactly this reason.
+> **Note:** an env var, when set, wins over the lexicon default — `load_dotenv(override=False)` only protects already-set shell variables, not the fallback chain. If `.env` or the deployment carries a stale `KT2`/`KE`, that value is what runs. The `[STARTUP]` log block prints the effective value of all 18 parameters for exactly this reason.
 
 ---
 
@@ -311,7 +323,9 @@ Some messages carry one extra top-level key, `applied`, holding the effective va
     "parameters": { "Q_MAX_AH": 100.0, "SAMPLE_TIME": 0.1, "A_THERMAL": 0.0002,
                     "KT0": 0.0, "KT1": 0.0, "KT2": 0.0278, "KE": 1.6,
                     "TAU1": 1.0, "TAU2": 600.0, "R0": 0.0, "R1": 0.1, "R2": 0.05,
-                    "COOLANT_TEMP": 20.0, "MAX_BATTERY_TEMP": 60.0 }
+                    "COOLANT_TEMP": 20.0, "MAX_BATTERY_TEMP": 60.0,
+                    "CHILLER_POWER_LOW": 2500.0, "CHILLER_POWER_HIGH": 5000.0,
+                    "HEATER_POWER_LOW": 2500.0, "HEATER_POWER_HIGH": 5000.0 }
   }
 }
 ```
@@ -332,7 +346,7 @@ Two separate QuixStreams `Application` instances are used to avoid shared intern
 Two dicts hold all mutable state, both keyed by lexicon name and both covered by **one** `threading.Lock` (`state_lock`):
 
 - `cmd` — the four input signals.
-- `params` — all 14 parameters, plus the private derived keys `_alpha1` / `_alpha2`.
+- `params` — all 18 parameters, plus the private derived keys `_alpha1` / `_alpha2`.
 
 One lock, not two: a tick must snapshot setpoints and parameters together or it can read a torn pair (a new `TAU2` with a stale `α₂`). The simulation loop copies both dicts once per tick and reads nothing else — no module-level tunable is read inside the loop.
 
@@ -364,7 +378,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-The simulator starts immediately from its env-var/lexicon baseline — the `[STARTUP]` log block prints the effective value of all 14 parameters and both topic names — and updates its signals and parameters as soon as the first message arrives on `dashboard-in`.
+The simulator starts immediately from its env-var/lexicon baseline — the `[STARTUP]` log block prints the effective value of all 18 parameters and both topic names — and updates its signals and parameters as soon as the first message arrives on `dashboard-in`.
 
 ---
 

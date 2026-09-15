@@ -89,9 +89,6 @@ state_lock = threading.Lock()
 Q_MAX = params["Q_MAX_AH"] * 3600.0  # Ah → Coulombs
 SAMPLE_TIME = params["SAMPLE_TIME"]  # seconds
 
-CHILLER_POWERS = {0: 0.0, 1: 2500.0, 2: 5000.0}  # W per setting
-HEATER_POWERS = {0: 0.0, 1: 2500.0, 2: 5000.0}  # W per setting
-
 # Derating LUT: (temperature_°C, derating_factor 0–1). Not in the lexicon, so not
 # tunable — MAX_BATTERY_TEMP's lexicon max of 60 °C is what keeps the two consistent.
 DERATING_LUT = [
@@ -249,6 +246,16 @@ def handle_command(value):
             _echo_due = True
 
 
+def power_map(low: float, high: float) -> dict[int, float]:
+    """Watts delivered by a chiller or heater, keyed by its setting.
+
+    Setting 0 is 0 W by definition of "off", which is why no parameter exists for it.
+    `low` and `high` are the two `*_POWER_*` parameters, which are tunable — so they
+    arrive from the caller's per-tick snapshot and are never read from `params` here.
+    """
+    return {0: 0.0, 1: low, 2: high}
+
+
 def derating_lookup(temp: float) -> float:
     """Linear interpolation of derating factor [0, 1] from DERATING_LUT."""
     temps = [p[0] for p in DERATING_LUT]
@@ -347,11 +354,15 @@ def run_simulation(producer_app, out_topic):
             chiller_setting = setpoints["chiller_setting"]
             heater_setting = setpoints["heater_setting"]
 
+            # Both maps are rebuilt every tick from the snapshot, because the four
+            # watt values are tunable parameters, not module constants.
             # .get, not [...]: an out-of-range setting must never kill this thread.
             # The wire path rejects one long before it gets here (coerce checks enum
             # membership); this is the backstop for any other writer.
-            power_chiller = CHILLER_POWERS.get(chiller_setting, 0.0)
-            power_heater = HEATER_POWERS.get(heater_setting, 0.0)
+            chiller_powers = power_map(p["CHILLER_POWER_LOW"], p["CHILLER_POWER_HIGH"])
+            heater_powers = power_map(p["HEATER_POWER_LOW"], p["HEATER_POWER_HIGH"])
+            power_chiller = chiller_powers.get(chiller_setting, 0.0)
+            power_heater = heater_powers.get(heater_setting, 0.0)
 
             # OCV from charge state
             ocv = ocv_lookup(q_act)
@@ -395,7 +406,8 @@ def run_simulation(producer_app, out_topic):
             temperature = p["A_THERMAL"] * heat
 
             # Temperature saturation. The lower clamp keys off the chiller's actual
-            # power, so a setting with no power map entry cannot engage it.
+            # power, so neither a setting outside the power map nor a stage tuned to
+            # 0 W can engage a clamp for a chiller that is not removing any heat.
             temperature = min(temperature, p["MAX_BATTERY_TEMP"])
             if power_chiller > 0.0:
                 temperature = max(temperature, p["COOLANT_TEMP"])
@@ -462,13 +474,13 @@ def log_startup():
     )
     for name, spec in PARAM_SPEC.items():
         logger.info(
-            "[STARTUP] %-16s = %-10s %s",
+            "[STARTUP] %-18s = %-10s %s",
             name,
             params[name],
             "(tunable)" if spec["tunable"] else "(FIXED)",
         )
     for name, value in cmd.items():
-        logger.info("[STARTUP] %-16s = %s", name, value)
+        logger.info("[STARTUP] %-18s = %s", name, value)
 
 
 if __name__ == "__main__":
