@@ -1,0 +1,114 @@
+
+
+Description of task
+
+
+Inputs:
+- requested power
+- ambient temperature
+- chiller setting (states 0 - not running, 1 - low cooling power 2 - high cooling power)
+- heater setting (states 0 - not running, 1 - low heating power 2 - high heating power)
+
+Internal states:
+- SOC(SOE)
+- open circuit terminal voltages
+- voltage of RC1 and RC2
+- DC voltages on terminal output
+- temperature of battery
+- DC voltages on terminal output
+- DC current
+
+Outputs:
+- all internal states
+
+Parameterization:
+- max charge capacity
+- coeficient for thermal function
+- open circuit voltage look-up-table
+- parametrization of RC1 and RC2 defined as Tau1 and Tau2 in transfer function
+- chiller power (0 -> 0W, 1 -> 2500W, 2 -> 5000W)
+- heater power (0 -> 0W, 1 -> 2500W, 2 -> 5000W)
+- sampletime
+- coolant temperature
+- max battery temperature saturation
+ 
+
+
+Internal states:
+- SOC(SOE)
+- open circuit terminal voltages
+- voltage of RC1 and RC2
+- DC voltages on terminal output
+- temperature of battery
+- DC voltages on terminal output
+- derating temperature look-up-table
+
+
+
+
+
+Principles:
+use this schematic model of battery https://www.google.com/url?sa=t&source=web&rct=j&url=https%3A%2F%2Fwww.researchgate.net%2Ffigure%2FSecond-order-RC-equivalent-circuit-model-consisting-of-two-RC-circuits-and-a-resistor-in_fig1_370697629&ved=0CBYQjRxqFwoTCKDehNv-mZMDFQAAAAAdAAAAABAH&opi=89978449
+
+run discrete simulation with 100ms sample time
+
+thermal function si defined as HeatDiff = kt2*DCCurrent^2 + kt1*DCCurrent + kt0 - ke * (TempOfbattery - TAmbient) + PowerOfHeater - PowerOfChiller
+Heat = HeatPrevious + Heatdiff
+T = A * Heat 
+
+SOC is calculated as:
+Qact = Qprev + DCcurrent * sampletime
+Qact should be saturated to 0 and Qmax(maximum charge)
+at Qact = 0 battery cannot provide any more DC current(negative values)
+at Qact = QMax battery cannot receive  any more DC current(positive values)
+
+OCV of battery is calcualted from look-up-table by inputing QAct
+
+terminalk voltage of battery must contain all 4 elemnts
+Static ressitance voltage, RC1 and RC2 voltage and OCV of battery
+send all values in battery-data topic
+
+
+Dc current is calcualted as DC current = RequetedPower / (DCVoltage on battery terminals). 
+Negative power request is expected for discharging the battery and positive for charging
+
+Default values, for params which should be used as parameters in Quix deployment environment
+
+- set open circuit voltage as linear from 720V at 0% SOC to 840V at 100% SOC
+- max charge is 100Ah
+- set Tau1 of RC1 to 1s
+- set Tau2 of RC2 to 600s
+- thermal function
+	- kt0 = 0
+	- kt1 = 0 
+	- kt2 = 0
+	- ke = 0	
+	- A = 0.0002 
+	
+	- try to set reasonable values for kt0, kt1, kt2 and ke. in a way at absolute(20A) at 13degC ambient temperature battery is thermal equilibrium without heater or chiller
+	- if current is 300A T should go up 1degC per 2 seconds without heater or chiller
+	- keep low value to ke, if tehre is no current battery shoulkd reach Tamb in 3hours
+	- chiller cannot cool batterry lower than is defined in parameter coolant temperature
+	- temperature of battery must be saturated on low side to coolant temperature if chiller is running
+	- saturate max temperature of battery to parameter  max battery temperature saturation
+
+Derating based on temperature:
+	- derating is factor based 0.0 to 1.0 range. value will be taken from LUT wfor temperature derating.
+	- for now 0 at -30degC 1 at -20deg.c, 1 at 50degC and 0 at 60degC
+	- DC Current provided by battery should be mutiplid by this value
+
+- sampletime = 0.1 s
+- set R1, R2 and C1 and C2 to meet Tau1 and Tau2 timing
+
+
+initial condition
+Qact = Qmax / 2
+Heat = 100000J
+A = 0.0002
+
+
+output
+put outputs in payload as Json into battery-data topic in Quix
+
+
+update MD files

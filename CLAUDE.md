@@ -1,0 +1,151 @@
+# dashboard-tests — Configurable SIL Dashboard
+
+## 1. What this is
+
+A **user-buildable interactive dashboard** for software-in-the-loop (SIL) plant
+models. The user drags control and visualisation elements onto a grid, binds each
+one to a signal, and drives/observes a running simulation — without writing code.
+
+The dashboard is *model-agnostic*. It learns what signals and parameters exist by
+reading a **lexicon** from the Dynamic Configuration Manager (DCM). Swap the plant
+model, swap the lexicon, and the same dashboard image serves the new model.
+
+First plant under test: `dc-battery-sim/` — a 2nd-order RC equivalent-circuit
+Li-ion battery model (see its own README for the physics).
+
+## 2. Pipeline shape
+
+```
+┌─────────────────┐   dashboard-in    ┌──────────────┐   dashboard-out   ┌─────────────────┐
+│    Dashboard    │ ────────────────► │  blackbox    │ ────────────────► │    Dashboard    │
+│  (control side) │   commands        │  SIL plant   │   telemetry       │   (view side)   │
+└─────────────────┘                   └──────────────┘                   └─────────────────┘
+        ▲                                     ▲
+        │  lexicon (signals + params)         │  live parameter values
+        └──────────────── DCM ────────────────┘
+```
+
+> **Naming trap — read this before touching topic config.**
+> Topic names are from the **pipeline's** point of view, not the dashboard's:
+> - `dashboard-in` — what the dashboard **sends**. Dashboard *produces*, SIL *consumes*.
+> - `dashboard-out` — what the dashboard **reads**. SIL *produces*, dashboard *consumes*.
+>
+> On `dc-battery-sim` these map to its `input` (`ui-data`) and `output`
+> (`battery-data`) env vars respectively.
+
+The dashboard is a **plug-in service with its own image** — it is a normal Quix
+deployment, not a portal add-on. It owns a web UI and speaks only to these topics
+plus the DCM.
+
+## 3. The lexicon (lives in DCM)
+
+Single source of truth for *what the dashboard is allowed to show and drive*. Two
+collections: `signals` (streamed values) and `parameters` (tunable model constants).
+
+Every entry carries the same descriptor:
+
+| Field | Meaning |
+|---|---|
+| `name` | Wire name — the JSON key on the topic |
+| `label` | Human name shown on the element |
+| `description` | Tooltip / help text |
+| `datatype` | `bool` \| `uint` \| `int` \| `float` \| `enum` |
+| `unit` | Engineering unit (`V`, `A`, `°C`, `%`, …); `null` for dimensionless |
+| `default` | Startup value |
+| `min` / `max` | Range — drives slider/knob endpoints and input validation |
+| `enum` | For `datatype: enum` — `[{value, label}, …]`; `null` otherwise |
+| `direction` | `input` (model consumes) \| `output` (model emits). Signals only. |
+
+`direction` is what makes the element picker work — see §4.
+
+**Battery model lexicon** (derive from `dc-battery-sim/README.md`, do not re-invent):
+- **Input signals** — `requested_power_w` (float, W), `ambient_temp_c` (float, °C),
+  `chiller_setting` (enum 0/1/2), `heater_setting` (enum 0/1/2)
+- **Output signals** — `soc_percent`, `q_act_as`, `ocv_v`, `dc_voltage_v`,
+  `dc_current_a`, `rc1_voltage_v`, `rc2_voltage_v`, `temperature_c`, `heat_j`,
+  `derating_factor` (all float), plus echoed setpoints
+- **Parameters** — `Q_MAX_AH`, `SAMPLE_TIME`, `A_THERMAL`, `KT0`–`KT2`, `KE`,
+  `TAU1`, `TAU2`, `R0`–`R2`, `COOLANT_TEMP`, `MAX_BATTERY_TEMP`
+
+## 4. Dashboard UI contract
+
+A **grid** the user fills with elements. Each element is bound to exactly one
+lexicon entry, and the binding picker is filtered by direction:
+
+| Element | Kind | Offers | Valid datatypes |
+|---|---|---|---|
+| Switch | control | `direction: input` + parameters | `bool`, `enum` |
+| Knob | control | `direction: input` + parameters | `uint`, `int`, `float` (needs `min`/`max`) |
+| Type-in field | control | `direction: input` + parameters | any |
+| Numeric readout | visualisation | `direction: output` | any |
+| Chart | visualisation | `direction: output` | `uint`, `int`, `float` |
+
+Rules:
+- **Never hardcode a signal name in UI code.** Everything comes from the lexicon.
+- An element whose bound entry vanishes from the lexicon renders as *unbound*, it
+  does not crash the grid.
+- `min`/`max` are enforced client-side before publishing to `dashboard-in`.
+- Parameters and input signals are both writable, but they travel different paths —
+  see the open question in §7.
+
+## 5. Repo layout
+
+```
+dashboard-tests/
+├── CLAUDE.md              ← this file
+├── .env                   ← Quix creds (gitignored; .env.example is the template)
+├── quix.yaml              ← pipeline definition (not yet created)
+├── dc-battery-sim/        ← the blackbox SIL plant, as shipped
+└── dev-planning/<feature>/spec.md   ← Buddy writes specs here before any code
+```
+
+## 6. Environment
+
+Quix context `testrig` (`https://portal-api.testrig.dev.quix.io`), org `testrigorg`,
+project **quixstreams tests** (`e02ed12d-24ab-4a8f-bb69-3b5dd2fe0751`).
+
+| Environment | Workspace ID | Git branch |
+|---|---|---|
+| Dashboard Test *(active — `.env` + this branch)* | `testrigorg-quixstreamstests-dashboardtest` | `devDB` |
+| QuixStream Pipeline | `testrigorg-quixstreamstests-quixstr-df57e12b` | `dev` |
+
+Dashboard work lives on **`devDB`** — that is the branch the Dashboard Test
+environment tracks, and it is what `.env` points at. Committing dashboard work to
+`dev` would deploy it to QuixStream Pipeline instead.
+
+## 7. Open questions — resolve before building, do not guess
+
+1. **How does the dashboard read the lexicon?** DCM's streaming primitive is
+   `sdf.join_lookup()` + `QuixConfigurationService` (see the `quix-dcm-join-lookup`
+   skill), which is a *pipeline* idiom. The dashboard's element picker needs a
+   request/response read instead. Options: dashboard consumes the config topic into
+   local state and serves it over HTTP (`quix-rocksdb-state-api` pattern), or reads
+   the DCM API directly. **Decide, don't improvise.**
+2. **Live parameter tuning requires changing the SIL.** `dc-battery-sim` reads every
+   parameter from env vars *once at startup* (`main.py:17-49`). Nothing tunes at
+   runtime today. Either the sim gains a DCM `join_lookup` for parameters, or
+   parameters ride the `dashboard-in` topic alongside signals. This is a real change
+   to the "blackbox", so it needs an explicit decision.
+3. **Dashboard layout persistence** — where does the user's grid config live? DCM,
+   browser storage, or a dedicated topic?
+4. **Chart history depth** — dashboard subscribes live at 10 Hz. How much backlog on
+   page load, and from where (topic replay vs. lakehouse)?
+
+## 8. Working agreements
+
+Global rules in `~/.claude/CLAUDE.md` apply in full. Project-specific emphasis:
+
+- **QuixStreams-first.** Every topic, state store, join and serialisation uses a
+  native QS primitive. Load `quixstreams-idioms` before writing QS code. No
+  hand-rolled consumer loops, JSON serdes, or config caches.
+- **Skills that fire here:** `quix-dcm-join-lookup` (lexicon/config enrichment),
+  `quix-rocksdb-state-api` (HTTP-over-State for the dashboard backend),
+  `quix-service-create` / `quix-service-update` (any new or changed deployment),
+  `quixstreams-idioms` (all QS code). If unsure a skill applies — **ask**.
+- **Spec before code.** Buddy writes `dev-planning/<feature>/spec.md`; ArchDev
+  implements from it; Tester runs the pre-commit + smoke gate. That gate is never
+  skipped.
+- **Frontend uses a real responsive framework** (Tailwind / component library) — no
+  hand-rolled breakpoints. The grid must survive phone through 4K.
+- **Do not edit `dc-battery-sim/` casually.** It is the reference plant and its
+  numbers are physically derived. Any change gets a spec and a note here.
