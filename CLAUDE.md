@@ -77,8 +77,9 @@ binding picker is filtered per element:
 
 | Element | Kind | Bindings | Offers | Valid datatypes |
 |---|---|---|---|---|
-| Switch | control | 1 | `direction: input` + `tunable` params | `bool`, `enum` |
-| Knob | control | 1 | `direction: input` + `tunable` params | `uint`, `int`, `float` (needs `min`/`max`) |
+| Rotary knob | control | 1 | `direction: input` + `tunable` params | `bool`, `enum` |
+| Slider (bar) | control | 1 | `direction: input` + `tunable` params | `uint`, `int`, `float` (needs `min`/`max`) |
+| Switch | control | 1 | `direction: input` + `tunable` params | `bool` |
 | Type-in field | control | 1 | `direction: input` + `tunable` params | `uint`, `int`, `float` |
 | Numeric readout | visualisation | 1 | `direction: output`, **and any parameter (read-only)** | any |
 | Chart | visualisation | **1..N** | `direction: output` | `uint`, `int`, `float` |
@@ -93,6 +94,11 @@ Rules:
 - **A chart takes several bindings.** Overlaying `ocv_v` against `dc_voltage_v` is the
   point of a chart; one-series-per-element would make the RC drop invisible. All
   series on one chart must share a `unit`, or the chart renders a second axis.
+- **Discrete goes rotary, continuous goes linear.** A rotary knob has one detent per
+  state and cannot express a value between them, which is exactly right for `enum`
+  and `bool` — `chiller_setting` has three positions, not a range. A continuous float
+  gets a slider, where travel maps to magnitude. Putting a float on a rotary knob
+  fakes precision the control cannot deliver.
 - **Type-in is numeric only.** An `enum` gets a switch or a select and a `bool` gets a
   switch — a free-text box that accepts `"fast"` for an enum is how Phase 1's C2 crash
   reached the sim in the first place.
