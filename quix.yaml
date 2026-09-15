@@ -41,10 +41,13 @@ deployments:
         inputType: FreeText
         required: true
         value: admin
+      # `secretKey` (not `value`) is the form the CLI emits and accepts for a Secret
+      # variable: it names the WORKSPACE SECRET to read, here the same `mongo_password`
+      # the DCM's mongoPasswordSecret points at, so both sides share one credential.
       - name: MONGO_INITDB_ROOT_PASSWORD
         inputType: Secret
         required: true
-        value: mongo_password
+        secretKey: mongo_password
       # Bump to an unused sibling (mongodb-v3, ...) to force a clean database with no
       # shell in the container; the entry point never deletes the old directory.
       - name: MONGO_DBPATH
