@@ -17,9 +17,12 @@ set -e
 #      on the same volume and mongod initialises cleanly, with no shell inside
 #      the container and no manual wipe.
 #
-# The fix for (2) is to own the files, on every start. Do NOT renumber the
-# mongodb account to match the volume: that shifts the UID out from under files
-# written by earlier runs and causes exactly the failure it appears to avoid.
+# The fix for (2) is to chown the files on every start, best-effort: some state
+# volumes are provisioned with enforced ownership and refuse chown outright,
+# which is not a reason to abort - see the chown block below. Do NOT renumber
+# the mongodb account to match the volume: that shifts the UID out from under
+# files written by earlier runs and causes exactly the failure it appears to
+# avoid.
 #
 # The official mongo docker-entrypoint.sh only chowns the hardcoded /data/db and
 # /data/configdb paths, never a custom --dbpath, so it cannot do this for us.
@@ -97,12 +100,25 @@ fi
 
 # Repair ownership on every start, recursively, before dropping privileges.
 # Idempotent, and cheap at this data size.
+#
+# Best-effort, never fatal. A state volume can be provisioned with enforced
+# ownership (Kubernetes fsGroup, or a CSI driver that fixes uid/gid at mount
+# time); such a volume refuses chown even for root, and at the same time makes
+# it unnecessary, because the files already carry the owner the mount imposes.
+# A refused chown is therefore not evidence that mongod cannot run. If the
+# ownership really is wrong, mongod says so itself moments later, with its own
+# specific error ("Operation not permitted" / Fatal assertion 28595) - a better
+# diagnostic than this script's guess. Exiting here would turn a maybe into a
+# certain failure. chown's own stderr is left visible on purpose.
 if [ "$(id -u)" -eq 0 ]; then
-  chown -R "$TARGET_USER:$TARGET_GROUP" "$TARGET_DIR" || {
-    echo "❌ Failed to chown -R $TARGET_DIR to $TARGET_USER:$TARGET_GROUP"
-    exit 1
-  }
-  echo "mongodb-init: $TARGET_DIR owned by $TARGET_USER:$TARGET_GROUP (recursive)"
+  # The chown runs as an `if` condition, so `set -e` does not abort on failure.
+  if chown -R "$TARGET_USER:$TARGET_GROUP" "$TARGET_DIR"; then
+    echo "mongodb-init: $TARGET_DIR owned by $TARGET_USER:$TARGET_GROUP (recursive)"
+  else
+    echo "⚠️  mongodb-init: chown -R $TARGET_DIR to $TARGET_USER:$TARGET_GROUP was refused; continuing anyway."
+    echo "   This volume most likely enforces its own ownership, in which case the files are already correct."
+    echo "   If they are not, mongod will fail below with its own error."
+  fi
 else
   echo "⚠️  mongodb-init: not running as root (uid $(id -u)); cannot repair ownership of $TARGET_DIR"
 fi
@@ -122,7 +138,8 @@ echo "mongodb-init: dbpath uid=$(stat -c '%u' "$TARGET_DIR") gid=$(stat -c '%g' 
 # docker-entrypoint.sh uses it itself to drop privileges when started as root.
 #
 # Running the entry point as mongodb also skips its own chown of /data/db, which
-# is irrelevant here: the chown above already covers the dbpath in use.
+# is irrelevant here: /data/db is not the dbpath. The block above is the only
+# ownership handling that matters for the dbpath in use.
 if [ "$(id -u)" -ne 0 ]; then
   echo "mongodb-init: already unprivileged; starting mongod without dropping privileges"
   exec docker-entrypoint.sh mongod --bind_ip_all --dbpath "$TARGET_DIR"
