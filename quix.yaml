@@ -1,0 +1,220 @@
+# Quix Project Descriptor
+# Describes the data pipeline and resources of the SIL dashboard project.
+# Charter: CLAUDE.md. Phase 1 spec: dev-planning/parameter-contract/spec.md
+#
+# Pipeline:  Dashboard -> dashboard-in -> dc-battery-sim -> dashboard-out -> Dashboard
+#
+# Topic names are from the PIPELINE's point of view (CLAUDE.md section 2):
+# `dashboard-in` is what the dashboard SENDS, `dashboard-out` is what it READS.
+#
+# DEPLOY ORDER: MongoDB first, then the Dynamic Configuration Manager (it cannot
+# authenticate until Mongo is up and the `mongo_password` workspace secret exists),
+# then dc-battery-sim. The sim does not depend on the DCM today - it reads its own
+# lexicon.json from disk (CLAUDE.md D3) - so it can start at any point.
+
+metadata:
+  version: 2.0
+
+deployments:
+  # Backing store for the Dynamic Configuration Manager's configuration documents.
+  # serviceName MUST stay `mongodb`: that is the host the DCM's mongoHost setting
+  # below resolves in-cluster.
+  - name: MongoDB
+    application: mongodb
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 800
+    state:
+      enabled: true
+      size: 1
+    network:
+      serviceName: mongodb
+      ports:
+        - port: 27017
+          targetPort: 27017
+    desiredStatus: Running
+    variables:
+      - name: MONGO_INITDB_ROOT_USERNAME
+        inputType: FreeText
+        required: true
+        value: admin
+      - name: MONGO_INITDB_ROOT_PASSWORD
+        inputType: Secret
+        required: true
+        value: mongo_password
+      # Bump to an unused sibling (mongodb-v3, ...) to force a clean database with no
+      # shell in the container; the entry point never deletes the old directory.
+      - name: MONGO_DBPATH
+        inputType: FreeText
+        required: true
+        value: /app/state/mongodb-v2
+
+  # Managed library item, no repo directory. Stores the signal/parameter lexicon and
+  # (per CLAUDE.md D5) the dashboard's saved grid layouts, each under its own config
+  # type. Needs the workspace secret `mongo_password` to exist before it can
+  # authenticate to MongoDB.
+  - name: Dynamic Configuration Manager
+    application: DynamicConfiguration
+    version: latest
+    deploymentType: Managed
+    resources:
+      cpu: 500
+      memory: 1000
+      replicas: 1
+    # serviceName is what gives the DCM in-cluster DNS. publicAccess/urlPrefix only
+    # controls the EXTERNAL hostname - setting it alone leaves the deployment with no
+    # internal name at all. No `ports:` here: a Managed deployment rejects them and the
+    # platform derives the port from the `port` setting below.
+    network:
+      serviceName: config-api-svc
+    publicAccess:
+      enabled: true
+      urlPrefix: config-api-svc
+    # A Managed deployment configures itself through `configuration:`, not `variables:`.
+    # The keys are the library item's setting names, not env var names.
+    configuration:
+      topic: config-updates
+      consumerGroup: config-api-v1
+      # The library item advertises a `mongoConnectionGroup` (VariableGroup) setting,
+      # but the sync validator on this cluster rejects it with "Configuration for
+      # variable 'MONGO_HOST' is required but not provided" even with the group created,
+      # populated and assigned. The individual settings below are the supported form here.
+      # mongoPasswordSecret names a WORKSPACE SECRET, not a literal password; that secret
+      # must hold the same value as MongoDB's MONGO_INITDB_ROOT_PASSWORD.
+      mongoHost: mongodb
+      mongoPort: 27017
+      mongoUser: admin
+      mongoPasswordSecret: mongo_password
+      mongoDatabase: dcm
+      mongoCollection: configurations
+      # `mongo` keeps blob storage off the DCM's critical path. `file` would make the
+      # Storage Gateway a hard dependency of configuration delivery. Lexicons and
+      # layouts are a few KB.
+      contentStore: mongo
+      workers: 1
+      port: 80
+    plugin:
+      embeddedView:
+        enabled: true
+        default: true
+
+  # The blackbox SIL plant. Consumes control commands on dashboard-in, publishes
+  # telemetry on dashboard-out at 1/SAMPLE_TIME Hz.
+  #
+  # Parameters below are the DEPLOYMENT BASELINE (CLAUDE.md D1). The 12 `tunable: true`
+  # entries are overwritten live by messages on dashboard-in and snap back to these
+  # values on restart. SAMPLE_TIME and Q_MAX_AH are `tunable: false` and can only be
+  # changed here.
+  - name: DC Battery Sim
+    application: dc-battery-sim
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 300
+        memory: 500
+    desiredStatus: Running
+    variables:
+      - name: input
+        inputType: InputTopic
+        required: true
+        value: dashboard-in
+      - name: output
+        inputType: OutputTopic
+        required: true
+        value: dashboard-out
+      - name: LEXICON_PATH
+        inputType: FreeText
+        value: lexicon.json
+      - name: LOG_LEVEL
+        inputType: FreeText
+        value: INFO
+      - name: APPLIED_ECHO_PERIOD_S
+        inputType: FreeText
+        value: "5"
+      # --- fixed parameters (tunable: false) ---
+      - name: Q_MAX_AH
+        inputType: FreeText
+        value: "100"
+      - name: SAMPLE_TIME
+        inputType: FreeText
+        value: "0.1"
+      # --- tunable parameter baselines ---
+      - name: A_THERMAL
+        inputType: FreeText
+        value: "0.0002"
+      - name: KT0
+        inputType: FreeText
+        value: "0"
+      - name: KT1
+        inputType: FreeText
+        value: "0"
+      - name: KT2
+        inputType: FreeText
+        value: "0.0278"
+      - name: KE
+        inputType: FreeText
+        value: "1.6"
+      - name: TAU1
+        inputType: FreeText
+        value: "1"
+      - name: TAU2
+        inputType: FreeText
+        value: "600"
+      - name: R0
+        inputType: FreeText
+        value: "0.0"
+      # R1/R2 non-zero per CLAUDE.md D2 - RC dynamics active out of the box.
+      - name: R1
+        inputType: FreeText
+        value: "0.1"
+      - name: R2
+        inputType: FreeText
+        value: "0.05"
+      - name: COOLANT_TEMP
+        inputType: FreeText
+        value: "20"
+      - name: MAX_BATTERY_TEMP
+        inputType: FreeText
+        value: "60"
+      # --- initial setpoints (input signals, overridden from dashboard-in) ---
+      - name: REQUESTED_POWER
+        inputType: FreeText
+        value: "-8000"
+      - name: AMBIENT_TEMP
+        inputType: FreeText
+        value: "15"
+      - name: CHILLER_SETTING
+        inputType: FreeText
+        value: "0"
+      - name: HEATER_SETTING
+        inputType: FreeText
+        value: "0"
+
+topics:
+  # Control commands from the dashboard. Low volume - a message per user interaction.
+  # 1 partition: the sim is single-replica and command ordering must be total, since
+  # partial updates are applied in arrival order.
+  - name: dashboard-in
+    configuration:
+      partitions: 1
+      retentionInMinutes: 1440
+
+  # Telemetry from the sim at 10 Hz. 1 partition for the same ordering reason - a chart
+  # reading interleaved samples from two partitions would show time going backwards.
+  - name: dashboard-out
+    configuration:
+      partitions: 1
+      retentionInMinutes: 1440
+
+  # DCM configuration change events (lexicon + saved layouts). 1 partition: ordering of
+  # version events for one configuration must be total. Retention 30 days, not the 1 day
+  # default - the SDK rebuilds the whole version history from this topic on restart, so
+  # truncating it silently un-configures everything.
+  - name: config-updates
+    configuration:
+      partitions: 1
+      retentionInMinutes: 43200
