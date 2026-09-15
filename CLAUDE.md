@@ -71,24 +71,31 @@ Every entry carries the same descriptor:
 
 ## 4. Dashboard UI contract
 
-A **grid** the user fills with elements. Each element is bound to exactly one
-lexicon entry, and the binding picker is filtered by direction:
+The grid has an **Edit mode** (add, move, resize, bind, delete elements) and a
+**View mode** (interact only — no accidental re-layout while driving a run). The
+binding picker is filtered per element:
 
-| Element | Kind | Offers | Valid datatypes |
-|---|---|---|---|
-| Switch | control | `direction: input` + `tunable` params | `bool`, `enum` |
-| Knob | control | `direction: input` + `tunable` params | `uint`, `int`, `float` (needs `min`/`max`) |
-| Type-in field | control | `direction: input` + `tunable` params | any |
-| Numeric readout | visualisation | `direction: output` | any |
-| Chart | visualisation | `direction: output` | `uint`, `int`, `float` |
+| Element | Kind | Bindings | Offers | Valid datatypes |
+|---|---|---|---|---|
+| Switch | control | 1 | `direction: input` + `tunable` params | `bool`, `enum` |
+| Knob | control | 1 | `direction: input` + `tunable` params | `uint`, `int`, `float` (needs `min`/`max`) |
+| Type-in field | control | 1 | `direction: input` + `tunable` params | `uint`, `int`, `float` |
+| Numeric readout | visualisation | 1 | `direction: output`, **and any parameter (read-only)** | any |
+| Chart | visualisation | **1..N** | `direction: output` | `uint`, `int`, `float` |
 
 Rules:
 - **Never hardcode a signal name in UI code.** Everything comes from the lexicon.
 - An element whose bound entry vanishes from the lexicon renders as *unbound*, it
   does not crash the grid.
 - `min`/`max` are enforced client-side before publishing to `dashboard-in`.
-- **Fixed parameters are never offered to a control element.** They may be shown
-  read-only, but the picker must filter them out of every control binding.
+- **Fixed parameters are never offered to a control element.** They are offered to a
+  numeric readout, read-only, so a user can see a value they cannot change.
+- **A chart takes several bindings.** Overlaying `ocv_v` against `dc_voltage_v` is the
+  point of a chart; one-series-per-element would make the RC drop invisible. All
+  series on one chart must share a `unit`, or the chart renders a second axis.
+- **Type-in is numeric only.** An `enum` gets a switch or a select and a `bool` gets a
+  switch — a free-text box that accepts `"fast"` for an enum is how Phase 1's C2 crash
+  reached the sim in the first place.
 
 ## 5. Repo layout
 
@@ -201,6 +208,18 @@ The dashboard backend keeps a short in-memory rolling window of `dashboard-out`
 connect, so a chart is populated the moment it renders. Live samples stream in after.
 No lakehouse read and no topic replay in Phase 2 — revisit only if someone needs
 history older than the window.
+
+### D7 — §4 amendments from the Phase 2 design pass (2026-09-15)
+
+Designing the dashboard concretely exposed four contradictions in §4 as originally
+written. §4 above is now the corrected version; the changes were: charts take 1..N
+bindings, numeric readouts may display parameters read-only, type-in is numeric only,
+and the grid gains explicit Edit/View modes.
+
+**Lexicon v1.1** also gains `model.instance_key` — the sim keys its `dashboard-out`
+messages `"battery-sim"`, which is not its `model.name` (`"dc-battery-sim"`). Without
+this the dashboard needs a hardcoded key per model, which breaks the
+model-agnosticism in §1. Until v1.1 ships it is a required env var.
 
 ## 8. Open questions — resolve before building, do not guess
 
