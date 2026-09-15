@@ -52,9 +52,8 @@ deployments:
         required: true
         value: /app/state/mongodb-v2
 
-  # Managed library item, no repo directory. `mongoConnectionGroup` is required with no
-  # default and references an org-level variable group that must exist and be assigned to
-  # this workspace before the deployment can be created.
+  # Managed library item, no repo directory. Needs the workspace secret `mongo_password`
+  # to exist before it can authenticate to MongoDB.
   - name: Dynamic Configuration Manager
     application: DynamicConfiguration
     version: latest
@@ -73,10 +72,18 @@ deployments:
     configuration:
       topic: config-updates
       consumerGroup: config-api-v1
-      # Required, no default. References an org-level variable group supplying
-      # MONGO_HOST / MONGO_PORT / MONGO_USER / MONGO_PASSWORD, which must exist and be
-      # assigned to this workspace before the deployment can be created.
-      mongoConnectionGroup: mongodb-connection
+      # The library item advertises a `mongoConnectionGroup` (VariableGroup) setting, but
+      # the sync validator on this cluster rejects it with "Configuration for variable
+      # 'MONGO_HOST' is required but not provided" even with the group created, populated
+      # and assigned. The individual settings below are what every working DCM in this
+      # org uses, so they are the supported form here.
+      # mongoPasswordSecret names a WORKSPACE SECRET, not a literal password; that secret
+      # must hold the same value as the mongodb deployment's MONGO_INITDB_ROOT_PASSWORD,
+      # or the DCM cannot authenticate and every record looks unresolvable.
+      mongoHost: mongodb
+      mongoPort: 27017
+      mongoUser: admin
+      mongoPasswordSecret: mongo_password
       mongoDatabase: dcm
       mongoCollection: configurations
       # `mongo` keeps blob storage off the DCM's critical path. `file` would make the
