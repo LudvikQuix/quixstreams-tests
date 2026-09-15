@@ -11,6 +11,11 @@ everything else is a supervised worker. The supervisor is the guard Phase 1
 earned: a daemon thread dying silently left the deployment green while it served
 a frozen page. On any worker exception we log CRITICAL and stop the Application
 so __main__ can exit non-zero and the platform restarts the pod.
+
+A missing lexicon is NOT one of those exceptions. The service boots without one,
+seeds the DCM from the bundled copy when the DCM is empty, and keeps retrying in
+the background; /healthz and /api/lexicon report the degraded state honestly.
+Exiting instead is what made an un-seeded DCM an undeployable dashboard.
 """
 
 from __future__ import annotations
@@ -25,7 +30,7 @@ from quixstreams import Application
 
 from backend.api import create_app
 from backend.hub import Hub
-from backend.lexicon import LexiconCache, LexiconError
+from backend.lexicon import LexiconCache
 from backend.settings import Settings
 from backend.window import RollingWindow
 from backend.writer import ControlWriter
@@ -132,7 +137,7 @@ def http_body() -> None:
 
 
 def log_startup() -> None:
-    snapshot = lexicon.require()
+    snapshot = lexicon.snapshot()
     logger.info(
         "[STARTUP] topics: telemetry_in=%s control_out=%s consumer_group=%s",
         settings.telemetry_topic,
@@ -144,9 +149,20 @@ def log_startup() -> None:
         settings.lexicon_type,
         settings.lexicon_target_key,
         lexicon.config_id,
-        snapshot.rev,
-        snapshot.model_name,
+        snapshot.rev if snapshot else 0,
+        snapshot.model_name if snapshot else "<none>",
     )
+    if snapshot is None:
+        # Not a fatal line, but the first one anyone will look for: the page
+        # will render an empty state until this clears.
+        logger.warning(
+            "[STARTUP] DEGRADED - no lexicon. seed_enabled=%s seed_path=%s "
+            "dcm=%s token=%s. Retrying in the background.",
+            settings.lexicon_seed_enabled,
+            settings.lexicon_seed_path,
+            settings.config_api_url,
+            "present" if settings.sdk_token else "MISSING",
+        )
     logger.info(
         "[STARTUP] window=%.0fs/%d samples  ws_flush=%.1fHz  plant_key=%s  port=%d",
         settings.history_seconds,
@@ -158,13 +174,11 @@ def log_startup() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        lexicon.load_at_boot()
-    except LexiconError as exc:
-        # No bundled fallback by design: a lexicon that disagrees with the
-        # running plant makes every control lie. Die and let the platform retry.
-        logger.critical("[STARTUP] %s", exc)
-        raise SystemExit(1) from exc
+    # Returns None instead of raising when the DCM has nothing and cannot be
+    # seeded. Serving an empty state beats a pod that never binds a port: the
+    # lexicon worker keeps retrying, and one seed or one DCM write fixes it
+    # without a redeploy.
+    lexicon.load_at_boot()
 
     producer_app = Application(consumer_group=f"{settings.consumer_group}-prod")
     consumer_app = Application(

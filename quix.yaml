@@ -183,6 +183,20 @@ deployments:
       - name: MAX_BATTERY_TEMP
         inputType: FreeText
         value: "60"
+      # Watts each chiller/heater stage delivers. Setting 0 is always 0 W and has
+      # no parameter; these four are what stages 1 and 2 are worth.
+      - name: CHILLER_POWER_LOW
+        inputType: FreeText
+        value: "2500"
+      - name: CHILLER_POWER_HIGH
+        inputType: FreeText
+        value: "5000"
+      - name: HEATER_POWER_LOW
+        inputType: FreeText
+        value: "2500"
+      - name: HEATER_POWER_HIGH
+        inputType: FreeText
+        value: "5000"
       # --- initial setpoints (input signals, overridden from dashboard-in) ---
       - name: REQUESTED_POWER
         inputType: FreeText
@@ -281,6 +295,15 @@ deployments:
       - name: LEXICON_BOOT_TIMEOUT_S
         inputType: FreeText
         value: "60"
+      # Self-starting: with an empty DCM the dashboard POSTs its bundled copy of
+      # dc-battery-sim/lexicon.json once (create-only, never a replace) and reads
+      # it straight back. Flip to "false" once the DCM is the managed source.
+      - name: LEXICON_SEED_ENABLED
+        inputType: FreeText
+        value: "true"
+      - name: LEXICON_SEED_PATH
+        inputType: FreeText
+        value: seed/lexicon.json
       - name: HISTORY_SECONDS
         inputType: FreeText
         value: "60"

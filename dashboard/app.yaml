@@ -47,8 +47,23 @@ variables:
     required: false
   - name: LEXICON_BOOT_TIMEOUT_S
     inputType: FreeText
-    description: How long to retry the DCM at boot before exiting non-zero. No fallback copy ships in the image.
+    description: >-
+      How long to retry the DCM at boot before serving degraded. The service
+      never exits over a lexicon — it boots, says so, and keeps retrying.
     defaultValue: "60"
+    required: false
+  - name: LEXICON_SEED_ENABLED
+    inputType: FreeText
+    description: >-
+      Write the bundled lexicon to the DCM when the DCM holds none. Create-only:
+      an existing configuration is never overwritten. Set to `false` once the DCM
+      is the managed source and nobody should be writing a lexicon from an image.
+    defaultValue: "true"
+    required: false
+  - name: LEXICON_SEED_PATH
+    inputType: FreeText
+    description: The bundled copy used for that seed, relative to /app in the image.
+    defaultValue: seed/lexicon.json
     required: false
   - name: HISTORY_SECONDS
     inputType: FreeText

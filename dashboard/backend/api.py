@@ -56,21 +56,29 @@ def create_app(
 
     app = FastAPI(title="SIL Dashboard", lifespan=lifespan)
 
+    # Two paths, one handler: `/healthz` is the spec's route table, `/api/healthz`
+    # is where a caller who knows the rest of this API looks. The alias is out of
+    # the schema so it cannot collide with the canonical route's operation id.
+    @app.get("/api/healthz", include_in_schema=False)
     @app.get("/healthz")
     def healthz() -> JSONResponse:
-        snapshot = lexicon.snapshot()
-        status = hub.status()
+        """Liveness, plus an honest account of the lexicon.
+
+        200 even with no lexicon, deliberately: the process is up, it is serving
+        the page, and it can be seeded where it stands. A 503 here cannot be
+        told apart from the ingress's own 503 for "no pod is running", which is
+        precisely the confusion the old boot-time SystemExit produced. The
+        lexicon verdict lives in the body - `lexicon_loaded` plus
+        `lexicon_error` - where a probe can act on it without guessing.
+        """
         body = {
-            "status": "ok" if snapshot else "starting",
-            "lexicon_loaded": snapshot is not None,
-            "lexicon_rev": snapshot.rev if snapshot else 0,
+            "status": "ok" if lexicon.snapshot() else "degraded",
             "window_rows": window.rows(),
             "dropped_frames": hub.total_dropped,
-            **status,
+            **lexicon.state(),
+            **hub.status(),
         }
-        # 503 only when the lexicon is missing. A stale plant is a flag, not a
-        # failure: a stopped simulation must not crash-loop the dashboard.
-        return JSONResponse(body, status_code=200 if snapshot else 503)
+        return JSONResponse(body, status_code=200)
 
     @app.get("/api/config")
     def config() -> dict[str, Any]:
@@ -79,21 +87,34 @@ def create_app(
         return dict(settings.client_config)
 
     @app.get("/api/lexicon")
-    def get_lexicon() -> dict[str, Any]:
+    def get_lexicon() -> JSONResponse:
         snapshot = lexicon.snapshot()
         if snapshot is None:
-            raise HTTPException(status_code=503, detail="lexicon not loaded")
-        return {
-            "rev": snapshot.rev,
-            "sha256": snapshot.sha256,
-            "fetched_at": snapshot.fetched_at,
-            "document": snapshot.document,
-        }
+            # 503 with the reason attached, not a bare status. This body is what
+            # the empty-state page renders, so it has to carry enough for a user
+            # to know whether to wait, to seed, or to fix CONFIG_API_URL.
+            state = lexicon.state()
+            detail = state["lexicon_error"] or "lexicon not loaded yet"
+            return JSONResponse({"detail": detail, **state}, status_code=503)
+        return JSONResponse(
+            {
+                "rev": snapshot.rev,
+                "sha256": snapshot.sha256,
+                "fetched_at": snapshot.fetched_at,
+                "document": snapshot.document,
+            }
+        )
 
     @app.post("/api/lexicon/refresh")
     def refresh_lexicon() -> dict[str, Any]:
+        """Also the "retry" button on the empty state.
+
+        `ensure_loaded` rather than `fetch`, so this retries the seed as well as
+        the read: a user who has just fixed the DCM, or who wants the bundled
+        copy written now, should not have to wait out the poll or redeploy.
+        """
         try:
-            snapshot = lexicon.fetch()
+            snapshot = lexicon.ensure_loaded()
         except LexiconError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return {"rev": snapshot.rev, "sha256": snapshot.sha256}
@@ -113,8 +134,8 @@ def create_app(
             errors = writer.submit(body.signals, body.parameters)
         except LexiconError as exc:
             # Same 503-plus-detail shape as GET /api/lexicon: with no lexicon
-            # there is nothing to validate a write against. Unreachable while
-            # main.py loads the lexicon before it starts the HTTP thread.
+            # there is nothing to validate a write against. Reachable now that
+            # boot no longer blocks the HTTP thread on the lexicon.
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         if errors:
             return JSONResponse({"errors": errors}, status_code=422)

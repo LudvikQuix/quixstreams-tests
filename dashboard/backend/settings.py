@@ -28,6 +28,14 @@ def _str(name: str, default: str) -> str:
     return raw or default
 
 
+def _bool(name: str, default: bool) -> bool:
+    """A Portal FreeText flag. Blank means absent, so the default wins."""
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class Settings:
     telemetry_topic: str
@@ -39,6 +47,8 @@ class Settings:
     lexicon_target_key: str
     lexicon_refresh_s: float
     lexicon_boot_timeout_s: float
+    lexicon_seed_enabled: bool
+    lexicon_seed_path: str
     history_seconds: float
     history_max_samples: int
     ws_flush_hz: float
@@ -63,6 +73,8 @@ class Settings:
             lexicon_target_key=os.environ["LEXICON_TARGET_KEY"],
             lexicon_refresh_s=_float("LEXICON_REFRESH_S", 900.0),
             lexicon_boot_timeout_s=_float("LEXICON_BOOT_TIMEOUT_S", 60.0),
+            lexicon_seed_enabled=_bool("LEXICON_SEED_ENABLED", True),
+            lexicon_seed_path=_str("LEXICON_SEED_PATH", "seed/lexicon.json"),
             history_seconds=_float("HISTORY_SECONDS", 60.0),
             history_max_samples=_int("HISTORY_MAX_SAMPLES", 6000),
             ws_flush_hz=_float("WS_FLUSH_HZ", 10.0),

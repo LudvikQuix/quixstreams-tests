@@ -19,7 +19,7 @@ import {
   type ReactNode,
 } from "react"
 
-import { fetchConfig, fetchLexicon } from "@/lib/api/client"
+import { ApiError, fetchConfig, fetchLexicon, refreshLexicon } from "@/lib/api/client"
 import { resolve } from "@/lib/lexicon/resolve"
 import type { LexiconResponse } from "@/lib/lexicon/types"
 import { validateValue, type ValidationResult } from "@/lib/lexicon/validate"
@@ -38,10 +38,27 @@ import {
 } from "@/lib/types/layout"
 import { useToast } from "@/lib/hooks/use-toast"
 
+/**
+ * Why there is no lexicon. `missing` is the backend's 503 — it is up and says
+ * the DCM has nothing for this type/target yet, which it may be in the middle of
+ * fixing by seeding. Anything else is a transport or server failure.
+ */
+export interface LexiconUnavailable {
+  detail: string
+  missing: boolean
+  state: Record<string, unknown> | null
+}
+
+// The backend seeds an empty DCM itself and keeps retrying an unreachable one,
+// so "no lexicon" is a state that repairs itself. Poll for that rather than
+// leaving a page that would stay wrong until someone reloads it.
+const LEXICON_RETRY_MS = 10_000
+
 interface DashboardContextValue {
   store: TelemetryStore
   lexicon: LexiconResponse | null
-  bootError: string | null
+  lexiconError: LexiconUnavailable | null
+  retryLexicon: () => void
   layout: DashboardLayout | null
   dirty: boolean
   editMode: boolean
@@ -88,11 +105,15 @@ export function DashboardProvider({ children }: { children: ReactNode }): JSX.El
   const { toast } = useToast()
 
   const [lexicon, setLexicon] = useState<LexiconResponse | null>(null)
-  const [bootError, setBootError] = useState<string | null>(null)
+  const [lexiconError, setLexiconError] = useState<LexiconUnavailable | null>(null)
+  const [loadToken, setLoadToken] = useState(0)
   const [layout, setLayout] = useState<DashboardLayout | null>(null)
   const [dirty, setDirty] = useState(false)
   const [editMode, setEditMode] = useState(false)
 
+  // The one place the lexicon is loaded. `loadToken` re-runs it: the retry
+  // button, the auto-retry below and a `lexicon` frame from the socket all bump
+  // it, so there is a single path from "no lexicon" to "lexicon".
   useEffect(() => {
     let cancelled = false
     Promise.all([fetchLexicon(), fetchConfig()])
@@ -101,23 +122,48 @@ export function DashboardProvider({ children }: { children: ReactNode }): JSX.El
         store.windowS = config.history_seconds
         store.appliedTimeoutMs = config.applied_timeout_ms
         setLexicon(lexiconResponse)
+        setLexiconError(null)
       })
       .catch((error: Error) => {
-        if (!cancelled) setBootError(error.message)
+        if (cancelled) return
+        const api = error instanceof ApiError ? error : null
+        setLexiconError({
+          detail: error.message,
+          missing: api?.status === 503,
+          state: api?.body ?? null,
+        })
       })
     return () => {
       cancelled = true
     }
-  }, [store])
+  }, [store, loadToken])
+
+  useEffect(() => {
+    if (lexicon || !lexiconError) return
+    const timer = window.setInterval(
+      () => setLoadToken((token) => token + 1),
+      LEXICON_RETRY_MS,
+    )
+    return () => window.clearInterval(timer)
+  }, [lexicon, lexiconError])
+
+  const retryLexicon = useCallback(() => {
+    // POST first: it asks the backend to re-read the DCM (and to seed it if it
+    // is empty) instead of re-serving the same empty cache. Its failure is not
+    // terminal — the GET that the token bump triggers reports the truth either
+    // way, and it carries the better message.
+    refreshLexicon()
+      .catch(() => undefined)
+      .finally(() => setLoadToken((token) => token + 1))
+  }, [])
 
   useEffect(() => {
     const socket = new DashboardSocket(
       (frame) => {
         if (frame.t === "lexicon") {
-          // A rev bump means re-resolve every binding, so refetch the document.
-          fetchLexicon()
-            .then(setLexicon)
-            .catch(() => undefined)
+          // A rev bump means re-resolve every binding, so reload the document.
+          // Also the recovery path: the first rev after a seed arrives here.
+          setLoadToken((token) => token + 1)
         }
         store.handleFrame(frame)
       },
@@ -285,7 +331,8 @@ export function DashboardProvider({ children }: { children: ReactNode }): JSX.El
   const value: DashboardContextValue = {
     store,
     lexicon,
-    bootError,
+    lexiconError,
+    retryLexicon,
     layout,
     dirty,
     editMode,

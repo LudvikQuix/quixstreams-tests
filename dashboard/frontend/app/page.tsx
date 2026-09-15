@@ -15,7 +15,11 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useTelemetryVersion } from "@/lib/hooks/use-telemetry"
-import { DashboardProvider, useDashboard } from "@/lib/store/dashboard-context"
+import {
+  DashboardProvider,
+  useDashboard,
+  type LexiconUnavailable,
+} from "@/lib/store/dashboard-context"
 
 const GridCanvas = dynamic(
   () => import("@/components/grid/grid-canvas").then((module) => module.GridCanvas),
@@ -33,7 +37,8 @@ export default function Page(): JSX.Element {
 function Shell(): JSX.Element {
   const {
     lexicon,
-    bootError,
+    lexiconError,
+    retryLexicon,
     layout,
     dirty,
     editMode,
@@ -43,16 +48,11 @@ function Shell(): JSX.Element {
   } = useDashboard()
   const { store } = useTelemetryVersion()
 
-  if (bootError) {
-    return (
-      <main className="p-6">
-        <h1 className="text-lg font-semibold">Dashboard unavailable</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          The backend could not serve a lexicon: {bootError}. The service reports its
-          own state on <code>/healthz</code>.
-        </p>
-      </main>
-    )
+  // No lexicon is an empty state, not a dead page: the service is running, it
+  // retries by itself, and one seed or one DCM write fills this in without a
+  // reload. Everything below here needs a lexicon to render honestly.
+  if (!lexicon) {
+    return <NoLexicon error={lexiconError} onRetry={retryLexicon} />
   }
 
   const connectionTone =
@@ -100,6 +100,72 @@ function Shell(): JSX.Element {
 
       <div className="flex-1 overflow-auto p-2">
         <GridCanvas />
+      </div>
+    </main>
+  )
+}
+
+/**
+ * The "no lexicon" empty state. Structure and affordances only — the visual
+ * pass is separate.
+ *
+ * It says which configuration is missing, because the fix is a DCM write and
+ * the type/target_key pair is what the operator needs to make it. It never
+ * claims the dashboard is down: the dashboard is what is rendering this.
+ */
+function NoLexicon({
+  error,
+  onRetry,
+}: {
+  error: LexiconUnavailable | null
+  onRetry: () => void
+}): JSX.Element {
+  if (!error) {
+    return <main className="p-6 text-sm">Loading lexicon…</main>
+  }
+
+  const state = error.state ?? {}
+  const facts: Array<[string, string]> = [
+    ["config type", String(state.lexicon_type ?? "—")],
+    ["target key", String(state.lexicon_target_key ?? "—")],
+    ["configuration id", String(state.lexicon_config_id ?? "—")],
+    ["seeding", state.lexicon_seed_enabled === false ? "disabled" : "enabled"],
+    ["DCM token", state.dcm_token_present === false ? "missing" : "present"],
+  ]
+
+  return (
+    <main className="p-6">
+      <h1 className="text-lg font-semibold">
+        {error.missing ? "No lexicon yet" : "Lexicon unavailable"}
+      </h1>
+      <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+        The dashboard is running and has nothing to draw: it learns every signal,
+        parameter, unit and range from a lexicon held in the Dynamic Configuration
+        Manager, and no usable one has been read yet.
+      </p>
+      <p className="mt-2 max-w-2xl text-sm">{error.detail}</p>
+
+      {error.state ? (
+        <dl className="mt-4 grid max-w-md grid-cols-[10rem_1fr] gap-x-4 gap-y-1 text-xs">
+          {facts.map(([label, value]) => (
+            <div key={label} className="contents">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd>
+                <code>{value}</code>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+
+      <div className="mt-4 flex items-center gap-2">
+        <Button size="sm" onClick={onRetry}>
+          Retry now
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          Retrying automatically every 10 s. The service reports its own state on{" "}
+          <code>/api/healthz</code>.
+        </span>
       </div>
     </main>
   )

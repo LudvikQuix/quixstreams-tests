@@ -25,5 +25,10 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py ./
 COPY backend/ ./backend/
+# The lexicon the service seeds into an EMPTY DCM, and only then (LEXICON_SEED_PATH).
+# It lives under dashboard/ because the build context is this directory: a COPY
+# cannot reach ../dc-battery-sim/lexicon.json. It is a copy of that file and has
+# to be re-copied whenever the plant's lexicon changes.
+COPY seed/ ./seed/
 COPY --from=webbuild /web/out ./static
 ENTRYPOINT ["python3", "main.py"]

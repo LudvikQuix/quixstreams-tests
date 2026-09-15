@@ -74,3 +74,35 @@ upstream release can silently change what the image ships.
 `dashboard/frontend/package-lock.json` (lockfileVersion 3) is staged, and `dashboard/dockerfile`
 is back on `npm ci` with a non-optional `COPY` of the lockfile. The two must be committed
 together or the image build fails outright.
+
+---
+
+## OP-4 — the spec's fail-fast boot policy made an un-seeded DCM undeployable
+
+**Root cause layer:** `spec`
+
+**What happened.** Spec §6.2 forbids a bundled copy of the lexicon and requires the service to
+exit non-zero when it cannot load one; §6.11 requires `GET /healthz` to answer 503 until it
+has. Both were built exactly as written (M1). But the spec also defers the `dcm-seed-lexicon`
+Job to M2 and leaves seeding as a manual `curl` in `architecture.md` §9 — so on the first real
+deployment the DCM was empty, `load_at_boot()` could never succeed, the pod crash-looped
+before uvicorn ever bound a port, and the Quix ingress answered **503 to every route**,
+including the health check. The two requirements are individually reasonable and jointly make
+the first deploy of any new environment impossible.
+
+**What was built (hotfix round 2, on the user's brief).**
+
+- The service never exits over a lexicon. It boots degraded and keeps retrying (30 s).
+- `dashboard/seed/lexicon.json` ships in the image and is POSTed to the DCM **only on a 404**,
+  with no `replace` key, so it creates or is declined — it can never overwrite a stored
+  document. `LEXICON_SEED_ENABLED=false` disables it. The bundle is never *served*; the DCM
+  remains the only source a lexicon is read from, which is what §6.2 was actually protecting.
+- `/healthz` (and the new `/api/healthz` alias) answers 200 with `status: "ok" | "degraded"`
+  and the reason in the body. `GET /api/lexicon` keeps its 503, now with an explanatory body.
+- D8 is respected: no seeder Job, no second deployment, no sidecar.
+
+**What is needed.** Buddy to amend spec §6.2 (boot policy, the seed-if-absent rule and the two
+new variables) and §6.11 (the `/healthz` contract, the `/api/healthz` alias, the 503 body on
+`/api/lexicon`), and to drop the `dcm-seed-lexicon` Job from the M2 backlog — it is cancelled,
+not deferred. Until that lands, `architecture.md` §5.3, §7 (D-9, D-10) and §12 are the
+normative description and the spec is stale on these two points.
