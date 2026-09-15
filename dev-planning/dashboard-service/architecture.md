@@ -101,15 +101,15 @@ One container, one process, four threads.
 
 | File | Lines | Responsibility |
 |---|---|---|
-| `main.py` | 213 | Env, the two `Application`s, the four-line SDF topology, `ingest`, the thread supervisor, startup log |
-| `backend/settings.py` | 98 | One frozen dataclass built from env. Nothing else reads `os.environ` |
+| `main.py` | 224 | Env, the two `Application`s, the four-line SDF topology, `ingest`, the thread supervisor, startup log |
+| `backend/settings.py` | 102 | One frozen dataclass built from env. Nothing else reads `os.environ` |
 | `backend/lexicon.py` | 390 | The **pair**: merge, model-mismatch refusal, immutable snapshot + rev counter, degraded boot, TTL/recovery refresh |
 | `backend/lexicon_config.py` | 259 | **One** DCM configuration: deterministic id, GET, the seed write, its own rev and its own error |
 | `backend/lexicon_rules.py` | 223 | `LexiconError`/`LexiconMissing` and the six Phase 1 load rules, plus the pair rules that need both documents |
 | `backend/window.py` | 80 | Time-bounded rolling window, `last_applied` cache, columnar snapshot projection |
 | `backend/hub.py` | 325 | WebSocket registry, bounded per-connection queue, flush/status loops, pause/resume, ping/pong, stall reaping |
-| `backend/writer.py` | 169 | Server-side re-validation (`coerce`/`validate`), coalescer, keyed produce |
-| `backend/api.py` | 186 | FastAPI routes, `/ws`, `/ws/echo`, StaticFiles + SPA fallback |
+| `backend/writer.py` | 186 | Server-side re-validation (`coerce`/`validate`), coalescer, keyed produce |
+| `backend/api.py` | 205 | FastAPI routes, `/ws`, `/ws/echo`, StaticFiles + SPA fallback |
 | `seed/signals.json` | — | Copy of `dc-battery-sim/signals.json`, written to the DCM only when `sil-signals` is absent |
 | `seed/parameters.json` | — | Copy of `dc-battery-sim/parameters.json`, same rule for `sil-parameters`. Seeds independently of the signal document |
 | `app.yaml`, `dockerfile`, `requirements.txt` | — | Deployment surface |
@@ -420,8 +420,8 @@ re-check when M2 repoints `LayoutStorage` at `/api/layouts`.
 | D-6 | `python:3.13-slim-bookworm`, `npm ci`, `jsonschema` pinned | `python:3.12.5-slim-bookworm`, `npm ci`, no `jsonschema` | 3.12.5 is the base image this repo already builds quixstreams against (`dc-battery-sim/dockerfile`). The `npm install` deviation is closed in fix round 1: Tester generated `dashboard/frontend/package-lock.json` (lockfileVersion 3, 458 packages), it is now staged, and the dockerfile is back on `npm ci`. `jsonschema` is only needed for M2's layout-save validation |
 | D-7 | `LAYOUT_TYPE` declared in `app.yaml` | Omitted | M1 has no DCM layout CRUD, so no code reads it. A declared variable nothing reads is dead config; M2 adds it with the layout store |
 | D-8 | Root `quix.yaml` does not exist yet; this spec creates it | It already exists; one deployment block was appended by hand | The file was created by earlier Phase-1 work. Matches the file's existing `resources.limits` style rather than the spec snippet's flat form, for consistency with its neighbours |
-| D-9 | §6.2: no fallback copy in the image; exit non-zero when the lexicon cannot be loaded | `dashboard/seed/lexicon.json` ships in the image and is POSTed to the DCM **when the DCM has none**; the process never exits over a lexicon | Hotfix brief, 2026-09-15, on a live crash-loop. Nothing had ever seeded the DCM and the spec defers the seeder Job to M2, so `load_at_boot` could not succeed, the pod restarted forever and the ingress 503'd every route. The spec's real requirement — never *serve* a lexicon the DCM does not have — is preserved exactly: the bundle is only ever written to an empty store (create-only, no `replace`), never served from disk. Recorded as OP-4 for Buddy to fold into §6.2 |
-| D-10 | §6.11: `GET /healthz` is **503 when the lexicon is not loaded** | 200 with `status: "degraded"` and the reason in the body; `/api/healthz` added as an alias | Same brief. A 503 from the app is indistinguishable from the ingress's own 503 for "no pod is running", which is the exact confusion that cost a debugging cycle here. The information the spec wanted is still there and is now richer: `lexicon_loaded`, `lexicon_error`, `lexicon_config_id`, `dcm_token_present`. `GET /api/lexicon` keeps 503, which is where a client that *needs* the document should learn it is absent. Also OP-4 |
+| D-9 | §6.2: no fallback copy in the image; exit non-zero when the lexicon cannot be loaded | `dashboard/seed/lexicon.json` ships in the image and is POSTed to the DCM **when the DCM has none**; the process never exits over a lexicon. **Amended by D9 (§14): two bundled documents, `seed/signals.json` and `seed/parameters.json`, each seeding its own configuration independently** | Hotfix brief, 2026-09-15, on a live crash-loop. Nothing had ever seeded the DCM and the spec defers the seeder Job to M2, so `load_at_boot` could not succeed, the pod restarted forever and the ingress 503'd every route. The spec's real requirement — never *serve* a lexicon the DCM does not have — is preserved exactly: the bundle is only ever written to an empty store (create-only, no `replace`), never served from disk. Recorded as OP-4 for Buddy to fold into §6.2 |
+| D-10 | §6.11: `GET /healthz` is **503 when the lexicon is not loaded** | 200 with `status: "degraded"` and the reason in the body; `/api/healthz` added as an alias. **Amended by D9 (§14): `status` is now `ok` / `partial` / `degraded`, and the body carries a state object per configuration** | Same brief. A 503 from the app is indistinguishable from the ingress's own 503 for "no pod is running", which is the exact confusion that cost a debugging cycle here. The information the spec wanted is still there and is now richer: `lexicon_loaded`, `lexicon_error`, `lexicon_config_id`, `dcm_token_present`. `GET /api/lexicon` keeps 503, which is where a client that *needs* the document should learn it is absent. Also OP-4 |
 
 ---
 
@@ -431,9 +431,12 @@ re-check when M2 repoints `LayoutStorage` at `/api/layouts`.
   `dashboard-in` envelope (§6.3), the `dashboard-out` payload plus the optional `applied` block
   (§6.4), and the message key `battery-sim` (carried as `PLANT_KEY`, because it is *not* the
   lexicon's `model.name`).
-- **DCM** — read-only in M1, over REST at `http://config-api-svc` in-cluster, authorised with
-  `Quix__Sdk__Token`. M2 adds layout CRUD under type `dashboard-layout` and lexicon
-  invalidation from the `config-updates` topic.
+- **DCM** — read-only in M1 (plus the create-only seed), over REST at `http://config-api-svc`
+  in-cluster, authorised with `Quix__Sdk__Token`. Two configuration types since D9:
+  `sil-signals` and `sil-parameters`, both under target_key `dc-battery-sim`, both fetched by
+  their deterministic `sha1("<type>-<target_key>")` id. M2 adds layout CRUD under type
+  `dashboard-layout` and lexicon invalidation from the `config-updates` topic — which, with two
+  configurations, means two subscriptions and a merge on each, not one.
 - **Topics** — `dashboard-out` in, `dashboard-in` out, both 1 partition, both already declared.
   No new topic.
 - **Pipeline graph** — unchanged in shape: `SIL Dashboard ⇄ dashboard-in / dashboard-out ⇄ DC
@@ -482,7 +485,7 @@ poll (≤ `LEXICON_REFRESH_S`, or 30 s while either configuration is missing) or
 
 | Command | Scope | Notes |
 |---|---|---|
-| `pre-commit run --all-files` | whole repo, pinned ruff `v0.6.3` | New Python: `dashboard/main.py`, `dashboard/backend/*.py`. Formatted by the `ruff-format` hook in fix round 1; it should now be a no-op |
+| `pre-commit run --all-files` | whole repo, pinned ruff `v0.6.3` | New Python since D9: `dashboard/backend/lexicon_config.py`, `dashboard/backend/lexicon_rules.py`, `dc-battery-sim/lexicon.py`; changed: `dashboard/backend/{lexicon,settings,writer,api}.py`, `dashboard/main.py`, `dc-battery-sim/main.py`. Written to ruff-format's own output but **not run** — a reformat here is a real finding, file it |
 | `npm ci && npm run lint` in `dashboard/frontend` | new TypeScript | `next lint` with `next/core-web-vitals`. Expect the `react-hooks/exhaustive-deps` disables in `dashboard-context.tsx`, `chart-element.tsx`, `knob-element.tsx`, `element-view.tsx` — each is commented with why |
 | `npm run type-check` in `dashboard/frontend` | `tsc --noEmit` | Highest-value frontend check. The uPlot scale-range callback and the `react-grid-layout` `compactType` prop are the two typings most likely to argue |
 | `docker build dashboard/` | the image | Proves the two-stage build and the static export; also the first thing the platform will do |
@@ -498,7 +501,7 @@ poll (≤ `LEXICON_REFRESH_S`, or 30 s while either configuration is missing) or
 | `backend/window.py` | Appending past `HISTORY_SECONDS` evicts from the left; past `HISTORY_MAX_SAMPLES` hard-caps; `snapshot(names, s)` returns equal-length `ts` and every `series` column, with `null` for a missing name |
 | `backend/hub.py` | Queue overflow drops the **oldest `frames`** and increments `dropped`; `applied`/`lexicon`/`status` are never dropped; `hello` and `resume` both answer with a snapshot; `pause` stops frames but not `applied`; a `write` frame arriving before the lexicon has loaded answers `write_error` instead of killing the socket |
 | `backend/writer.py` | `coerce` rejects `True` for a numeric field, rejects `0.5` for an int, accepts an int for a float and stores `float`, canonicalises an enum to the member's `value`, and **blocks** rather than clamps out-of-range; `validate` rejects `SAMPLE_TIME`/`Q_MAX_AH` (D1); two writes inside `WRITE_COALESCE_MS` produce **one** message |
-| `backend/api.py` | `/healthz` and `/api/healthz` both answer 200 always, with `status` `ok` vs `degraded` and a non-null `lexicon_error` when degraded; `/api/lexicon` is 503 **with a JSON body carrying `detail` and the state fields** when there is no lexicon; `/api/lexicon/refresh` seeds as well as re-reads; `/api/control` is 422 on a bad field, 503 with a `detail` body when the lexicon has not loaded, and 202 otherwise; the static catch-all does not shadow `/api`, `/ws` or `/healthz` |
+| `backend/api.py` | `/healthz` and `/api/healthz` both answer 200 always, with `status` `ok` / `partial` / `degraded` per the §5.3 table, a `signals` and a `parameters` object always present, and a non-null `lexicon_error` when anything is wrong; `/api/lexicon` is 503 **with a JSON body carrying `detail` and both per-configuration states** when there is no lexicon, and 200 carrying those same two states when there is; `/api/lexicon/refresh` seeds as well as re-reads, both configurations; `/api/control` is 422 on a bad field, 503 with a `detail` body when the lexicon has not loaded, and 202 otherwise; the static catch-all does not shadow `/api`, `/ws` or `/healthz` |
 | `frontend/lib/lexicon/resolve.ts` | `candidates()` never returns a `tunable: false` parameter for `switch`/`knob`/`typein`, and does return it for `readout` |
 | `frontend/lib/store/telemetry.ts` | An echo inside `SETTLE_MS` of a write neither confirms nor rejects it; one outside it with a different value fires the reject handler once |
 
@@ -507,34 +510,52 @@ poll (≤ `LEXICON_REFRESH_S`, or 30 s while either configuration is missing) or
 1. **Task 0 (blocking).** Deploy, then `wss://<public-url>/ws/echo`, send `hello`, expect
    `101` then `echo:hello`. **If this fails, stop and take the SSE fallback** before anything
    else.
-2. **Self-seeding (this hotfix's reason to exist).** Against a DCM with no `sil-lexicon` /
-   `dc-battery-sim` configuration: the deployment must reach *Running* and stay there.
-   `GET /api/healthz` → 200. Within one boot it should read `status: "ok"`,
-   `lexicon_rev: 1`, `lexicon_seeded_by_this_pod: true`; the log carries
-   `[LEXICON] seeded sil-lexicon/dc-battery-sim (id=…)`. Restart the deployment: the second
-   boot logs no seed (or a declined one), `lexicon_seeded_by_this_pod` is `false`, and
-   `lexicon_rev` is still 1 — **the stored document must not gain a version.**
-3. **Degraded path.** Set `CONFIG_API_URL` to a name that does not resolve and redeploy: the
+2. **Self-seeding, both configurations.** Against a DCM holding neither `sil-signals` nor
+   `sil-parameters` for `dc-battery-sim`: the deployment must reach *Running* and stay there.
+   `GET /api/healthz` → 200. Within one boot it should read `status: "ok"`, `lexicon_rev: 1`,
+   `signals.rev: 1`, `parameters.rev: 1`, and `seeded_by_this_pod: true` on **both**; the log
+   carries `[LEXICON] seeded sil-signals/dc-battery-sim (id=…)` and the matching
+   `sil-parameters` line. Restart the deployment: the second boot logs no seed (or two declined
+   ones), both `seeded_by_this_pod` are `false`, and both revs are still 1 — **neither stored
+   document may gain a version.**
+3. **Per-configuration degradation (the point of D9).** Seed `sil-signals` only — leave
+   `sil-parameters` absent, or set `PARAMETERS_TYPE` to a type nothing exists under.
+   `GET /api/healthz` → 200, `status: "partial"`, `signals.loaded: true` with its rev,
+   `parameters.loaded: false` with a non-null `parameters.error`. `GET /api/lexicon` → **200**
+   with 16 signals and `parameters: []`. The page renders the grid with a *no parameters ·
+   read-only* badge; charts and readouts on output signals draw; the binding picker offers no
+   parameters. `POST /api/control` with a parameter → 422 naming the unloaded configuration;
+   with an input signal → 202. Then do the mirror: `sil-parameters` only → `status: "partial"`,
+   `signals: []`, the *no signals* badge, and a tunable-parameter control still works.
+4. **Mismatched pair.** Write a `sil-parameters` document whose `model.name` is anything else
+   (`replace: true`, the curl in §9). Within one poll: `GET /api/healthz` → 200,
+   `status: "degraded"`, `lexicon_pair_error` naming **both** model names; `GET /api/lexicon` →
+   503; the log carries `[LEXICON] … cannot be paired`. The dashboard must serve **no** lexicon
+   here — not the previous snapshot and not a merged one. Put the document back: it recovers
+   within 30 s with no redeploy.
+5. **Degraded path.** Set `CONFIG_API_URL` to a name that does not resolve and redeploy: the
    deployment still reaches Running, `GET /api/healthz` → 200 with `status: "degraded"` and a
-   `lexicon_error` naming the DCM, `GET /api/lexicon` → 503 with a `detail`, `GET /` renders
-   the "No lexicon yet" page with a working Retry button. Put the URL back, press Retry (or
-   wait ≤ 30 s) and the grid appears **without a redeploy**.
-4. `GET /api/lexicon` → 30 descriptors, `rev` 1.
-5. `GET /` → the exported HTML, not a 404; assets load from the same origin.
-6. `GET /api/snapshot?signals=<two output names from the lexicon>&seconds=10` → non-empty `ts`
+   `lexicon_error` naming the DCM under **both** configurations, `GET /api/lexicon` → 503 with a
+   `detail`, `GET /` renders the "No lexicon yet" page listing both configurations and a working
+   Retry button. Put the URL back, press Retry (or wait ≤ 30 s) and the grid appears **without a
+   redeploy**.
+6. `GET /api/lexicon` → 16 signals + 18 parameters (34 descriptors), `rev` 1, and both
+   `signals.loaded` and `parameters.loaded` true.
+7. `GET /` → the exported HTML, not a 404; assets load from the same origin.
+8. `GET /api/snapshot?signals=<two output names from the lexicon>&seconds=10` → non-empty `ts`
    once the sim is running, and `applied` non-null within 5 s.
-7. `POST /api/control` with a valid in-range field → 202, and the field's value moves in the
+9. `POST /api/control` with a valid in-range field → 202, and the field's value moves in the
    next `applied`. With an out-of-range value → **422**, and `dashboard-in` sees nothing.
-8. `POST /api/control` naming `SAMPLE_TIME` → 422 (D1), nothing produced.
-9. **UI end to end:** open the public URL → Edit → add a Chart → bind two output signals →
+10. `POST /api/control` naming `SAMPLE_TIME` → 422 (D1), nothing produced.
+11. **UI end to end:** open the public URL → Edit → add a Chart → bind two output signals →
    leave Edit → both traces draw within one sample period. Add a Knob → bind an input signal →
    drag it → a readout bound to a dependent output moves within ~200 ms and the knob's pulse
    clears when the echo lands.
-10. Reload the page: the grid returns from localStorage and every chart is populated
+12. Reload the page: the grid returns from localStorage and every chart is populated
    immediately from the backend window (not empty, not waiting).
-11. Background the tab for a minute, return: charts refill from a fresh snapshot with a visible
+13. Background the tab for a minute, return: charts refill from a fresh snapshot with a visible
     gap, and the backend's memory is unchanged.
-12. Model-agnosticism grep (spec §6.9) — must return **zero** matches:
+14. Model-agnosticism grep (spec §6.9) — must return **zero** matches:
     `rg -n -w 'soc_percent|…|MAX_BATTERY_TEMP' dashboard/ --glob '!**/*.test.*' --glob '!**/e2e/**'`
 
 ### 10.4 Spec sections each path is meant to satisfy
@@ -542,7 +563,9 @@ poll (≤ `LEXICON_REFRESH_S`, or 30 s while either configuration is missing) or
 | Code | Spec |
 |---|---|
 | `main.py` topology + threads | §6.1, §6.3 |
-| `backend/lexicon.py` | §6.2, Phase 1 §6.1 (the six load rules) |
+| `backend/lexicon.py` | §6.2, CLAUDE.md D9 (two configurations, per-config degradation, mismatch detection) |
+| `backend/lexicon_config.py` | §6.2 (the DCM read and the seed), CLAUDE.md D3 |
+| `backend/lexicon_rules.py` | Phase 1 §6.1 (the six load rules) |
 | `backend/window.py` | §6.3, D6 |
 | `backend/hub.py` | §6.4 |
 | `backend/writer.py` | §6.8, Phase 1 §6.3, §6.7 |
@@ -595,7 +618,7 @@ and the health check alike. The failure looked like a routing problem and was a 
 | Explaining 503 | `backend/api.py` — `GET /api/lexicon` | Still 503, but with a body the UI can render instead of a bare status |
 | Seeding retry from the UI | `backend/api.py` — `POST /api/lexicon/refresh` | Calls `ensure_loaded`, so the empty state's Retry button can seed, not just re-read |
 | "No lexicon yet" empty state | `frontend/app/page.tsx`, `lib/store/dashboard-context.tsx`, `lib/api/client.ts` | The page used to render "Dashboard unavailable" and stay that way until a reload. It now names the missing configuration, retries every 10 s, and recovers in place |
-| Bundled copy + variables | `dashboard/seed/lexicon.json`, `dashboard/dockerfile`, `dashboard/app.yaml`, `quix.yaml` | `LEXICON_SEED_ENABLED` (default `true`) and `LEXICON_SEED_PATH` |
+| Bundled copy + variables | `dashboard/seed/lexicon.json`, `dashboard/dockerfile`, `dashboard/app.yaml`, `quix.yaml` | `LEXICON_SEED_ENABLED` (default `true`) and `LEXICON_SEED_PATH`. The seed file and `LEXICON_SEED_PATH` were both split in two by D9 — see §14 |
 
 **What did not change:** the topology, the thread model, every wire format, the write path, the
 window, the hub, and the rule that the DCM is the only source the dashboard ever *reads* a
@@ -645,3 +668,44 @@ Alternatives: `rsvg-convert -w 32 -h 32`, `inkscape --export-png`, or `sharp` CL
 ### Manifest colours
 
 `theme_color: "#0064ff"` and `background_color: "#1a1a1a"` are hex equivalents of `--primary: 217 100% 50%` and `--background: 0 0% 10.2%` (dark theme) from `globals.css`. If either CSS variable changes, update the manifest to match.
+
+---
+
+## 14. D9 (2026-09-15) — the lexicon becomes two DCM configurations
+
+Source: CLAUDE.md §7 **D9**. Not a bug log; a charter decision taken because one combined
+configuration made every parameter tuning write bump the signal lexicon's version too, and made
+"what changed in the signal set" unanswerable from version history.
+
+**What changed, and what deliberately did not.**
+
+| Change | Where | Why |
+|---|---|---|
+| One config type became two | `settings.py` — `LEXICON_TYPE` → `SIGNALS_TYPE` + `PARAMETERS_TYPE`; `LEXICON_SEED_PATH` → `SIGNALS_SEED_PATH` + `PARAMETERS_SEED_PATH`. `LEXICON_TARGET_KEY` unchanged | Two configurations, one plant. The target key is what names the plant and stays single |
+| One cache became two plus a merger | new `backend/lexicon_config.py` (`ConfigCache`), `backend/lexicon.py` (`LexiconCache`) | A configuration that can fail on its own needs its own rev, its own error and its own seed. `ConfigCache.ensure_loaded()` returns a bool and never raises, so one 404 cannot stop the other read |
+| Validation moved out | new `backend/lexicon_rules.py` | Two callers and two seed files; `LexiconError` moved with the rules rather than being stranded. Load rule 6 split: the within-document half stays in the validators, the cross-collection half became `pair_problems` |
+| Degradation became per configuration | `LexiconSnapshot.signals_loaded` / `parameters_loaded`; `/healthz` `status` `ok`/`partial`/`degraded`; `/api/lexicon` carries both states on 200 *and* 503 | §5.3. Signals without parameters is a working read-only dashboard and must not report the same as a dashboard with nothing |
+| Mismatch is refused, not merged | `LexiconCache._check_pair` + `lexicon_rules.pair_problems` | Both documents carry `model` for exactly this. A mismatched pair drops the snapshot and serves nothing |
+| The empty state and the header learned to say which half | `frontend/lib/lexicon/types.ts` (`CollectionState`), `app/page.tsx` (two badges, per-configuration fact rows) | Structure only — no visual pass. An absent parameter configuration otherwise reads as a plant with no tunables and the picker just looks empty |
+| Write rejection names the cause | `backend/writer.py` `_missing()` | "the parameters configuration is not loaded" is an operator's problem; "not a parameter in this lexicon" is the caller's. Same 422 either way |
+| Two bundled seed files | `dashboard/seed/{signals,parameters}.json`, `dashboard/dockerfile` | Each seeds its own configuration, create-only, independently |
+| Plant source split | `dc-battery-sim/{signals,parameters}.json`, new `dc-battery-sim/lexicon.py`, `LEXICON_PATH` → `SIGNALS_PATH` + `PARAMETERS_PATH` | The on-disk shape now matches the DCM shape exactly, so no transform sits between them. The sim merges at import and raises on a `model.name` mismatch — both files ship in one image, so that is a build error |
+
+**What did not change:** the topology, the thread model, every wire format, the write path, the
+window, the hub, the rolling-window projection, the layout schema, and the rule that the DCM is
+the only source the dashboard ever *reads* a lexicon from. Not one line of `hub.py`,
+`window.py`, `resolve.ts`, `validate.ts` or `telemetry.ts` was touched: the merge in
+`LexiconCache` is what kept the split from reaching them.
+
+**The awkward part, recorded because it will come up again.** D9 assumes the two collections
+are independent, and they are — *until they are merged*. Three things belong to the pair and to
+neither document: the `model` agreement, the load-rule-6 ban on a name appearing in both
+collections, and the merged `rev` that the WebSocket `lexicon` frame broadcasts. All three live
+in `LexiconCache` for that reason. The merged `rev` in particular is **not** either
+configuration's rev: it counts changes to the merged document, so a parameter-only DCM write
+bumps `parameters.rev` and the merged `rev` and leaves `signals.rev` alone — which is exactly
+the version history D9 was taken to get, visible on `/healthz`.
+
+**Live DCM.** The existing `sil-lexicon` / `dc-battery-sim` configuration at version 2 is
+untouched by this change; nothing reads it any more. It is the user's to retire once the new
+pair is verified.
