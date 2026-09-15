@@ -1,0 +1,63 @@
+name: data-generator
+language: python
+variables:
+  - name: output
+    inputType: OutputTopic
+    description: >-
+      Topic to produce keyed sensor records to. Read with os.environ["output"], never
+      .get() with a fallback - a hardcoded fallback boots fine but leaves the Portal
+      pipeline graph with no edge into this service.
+    defaultValue: sensor-data
+    required: true
+  - name: DEVICE_COUNT
+    inputType: FreeText
+    description: >-
+      Size of the key space. Devices are device-000..device-(N-1), cycled round-robin.
+      Raising it lengthens the buffer's sweep cycle (D/(4R) seconds) and delays the
+      timeout outcome; it also lowers the per-device rate R/D and therefore the per-key
+      buffer depth. Redo the sizing arithmetic in the spec before changing it.
+    defaultValue: "100"
+    required: false
+  - name: SEEDED_DEVICE_COUNT
+    inputType: FreeText
+    description: >-
+      Informational here - the generator does not seed anything, it only logs this at
+      startup. MUST equal config-seeder's and lookup-sink's value of the same name, or
+      the seeded_expected column on every emitted row lies.
+    defaultValue: "50"
+    required: false
+  - name: SLEEP_SECONDS
+    inputType: FreeText
+    description: >-
+      Delay between messages in seconds. 0.05 = 20 msg/s total = one record per device
+      every 5 s at DEVICE_COUNT=100. Lowering it raises the per-key buffer depth
+      ((R/D) x grace_ms) toward the buffer's RELEASE_WARN_RECORDS=1000 threshold.
+    defaultValue: "0.05"
+    required: false
+  - name: TIMESTAMP_SKEW_MS
+    inputType: FreeText
+    description: >-
+      Milliseconds added to the Kafka message timestamp and to the record's "timestamp"
+      field. ESCAPE HATCH ONLY: set it above SEED_DELAY_SECONDS*1000 if the DCM turns out
+      to ignore metadata.valid_from, so that valid_from <= record timestamp holds without
+      backdating. It does not weaken the test - grace_ms is wall-clock, so record
+      timestamps only decide which configuration version applies. If used, switch
+      lake-sink's TIMESTAMP_COLUMN to produced_ms or every row lands in a future partition.
+      0 = off.
+    defaultValue: "0"
+    required: false
+  - name: RUN_ID
+    inputType: FreeText
+    description: >-
+      Opaque run label stamped into every record. Bump it for every fresh run so one lake
+      table holds several runs separably.
+    defaultValue: r1
+    required: false
+  - name: LOG_EVERY
+    inputType: FreeText
+    description: Messages between progress log lines.
+    defaultValue: "200"
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

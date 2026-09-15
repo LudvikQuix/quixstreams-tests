@@ -1,0 +1,73 @@
+name: config-seeder
+language: python
+variables:
+  - name: DCM_API_URL
+    inputType: FreeText
+    description: >-
+      Base URL of the Dynamic Configuration Manager REST API, no trailing slash. The
+      managed DCM deployment carries network.serviceName config-api-svc on port 80, so
+      in-cluster DNS resolves http://config-api-svc and no token is needed. Point it at
+      the publicAccess URL (and fill DCM_API_TOKEN) only if in-cluster DNS is unavailable.
+    defaultValue: http://config-api-svc
+    required: true
+  - name: DCM_API_TOKEN
+    inputType: Secret
+    description: >-
+      Bearer token for the DCM API. Sent only when non-empty. Required only when reaching
+      the DCM over its public URL; leave blank for in-cluster DNS.
+    defaultValue: ""
+    required: false
+  - name: SEED_DELAY_SECONDS
+    inputType: FreeText
+    description: >-
+      Wall-clock seconds to wait before POSTing anything. THIS IS THE INSTRUMENT. It must
+      be long enough for both lookup-sink arms to be consuming before the configurations
+      land (otherwise every record resolves on the first attempt and nothing ever buffers)
+      and shorter than lookup-sink's GRACE_MS/1000 (otherwise the earliest pre-seed records
+      time out before their configuration arrives and the enriched-release outcome gets a
+      ragged edge).
+    defaultValue: "120"
+    required: false
+  - name: DEVICE_COUNT
+    inputType: FreeText
+    description: Total key space. Logged only; must equal data-generator's value.
+    defaultValue: "100"
+    required: false
+  - name: SEEDED_DEVICE_COUNT
+    inputType: FreeText
+    description: >-
+      How many devices get a configuration, from device-000 upward. The rest are
+      permanently unresolvable and produce the timeout outcome. This single knob is what
+      yields all three outcomes in one run. Must equal lookup-sink's value of the same
+      name, which is what stamps seeded_expected on every emitted row.
+    defaultValue: "50"
+    required: false
+  - name: CONFIG_TYPE
+    inputType: FreeText
+    description: >-
+      DCM configuration type. Must equal the type= passed to every json_field in
+      lookup-sink - the type is fixed at pipeline-build time and the lookup will not
+      check it. It is also half of the configuration id (sha1 of "<type>-<target_key>").
+    defaultValue: device
+    required: false
+  - name: VALID_FROM_BACKDATE_SECONDS
+    inputType: FreeText
+    description: >-
+      Seconds to backdate metadata.valid_from. LOAD-BEARING: find_valid_version() matches
+      versions whose valid_from is at or before the RECORD's timestamp, so a configuration
+      stamped "now" can never apply to a record produced a minute ago, and every pre-seed
+      record would stay unresolvable forever. 24 h is far more than any plausible run
+      length. The Job reads two configurations back and exits non-zero if the backdate was
+      not stored.
+    defaultValue: "86400"
+    required: false
+  - name: RUN_ID
+    inputType: FreeText
+    description: >-
+      Run label. Written into metadata.category as pr1110-rig-<RUN_ID> and logged, so the
+      DCM UI shows which run seeded a configuration.
+    defaultValue: r1
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

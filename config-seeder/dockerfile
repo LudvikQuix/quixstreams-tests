@@ -1,0 +1,21 @@
+FROM python:3.13-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=UTF-8
+
+# requirements.txt pins quixstreams to a git SHA (PR #1110, unreleased), so pip needs a
+# git client. Not needed by the upstream samples, which install quixstreams from PyPI.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Requirements first, so the slow pip layer survives an application-code edit.
+COPY ./requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+ENTRYPOINT ["python3", "main.py"]
