@@ -21,6 +21,7 @@ variables:
       Kafka key on every control message. Partial update is last-write-wins and
       needs a total order, so this is mandatory. `battery-sim` for this plant —
       note it is NOT the lexicon's model.name (lexicon v1.1 / OQ-6 closes that).
+    defaultValue: battery-sim
     required: true
   - name: CONFIG_API_URL
     inputType: FreeText
@@ -37,6 +38,7 @@ variables:
     description: >-
       DCM target_key of the lexicon — the plant model name (`dc-battery-sim`).
       The one variable that names the plant; changing it swaps the model.
+    defaultValue: dc-battery-sim
     required: true
   - name: LEXICON_REFRESH_S
     inputType: FreeText
