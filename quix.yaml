@@ -62,8 +62,15 @@ deployments:
       cpu: 500
       memory: 1000
       replicas: 1
-    # urlPrefix also fixes the in-cluster service name, so it must stay equal to the
-    # host in config-seeder's DCM_API_URL.
+    # serviceName is what gives the DCM in-cluster DNS, and it must stay equal to the
+    # host in config-seeder's DCM_API_URL. publicAccess/urlPrefix only controls the
+    # EXTERNAL hostname - setting it alone leaves the deployment with no internal name
+    # at all, and the seeder dies with "Failed to resolve 'config-api-svc'".
+    network:
+      serviceName: config-api-svc
+      ports:
+        - port: 80
+          targetPort: 80
     publicAccess:
       enabled: true
       urlPrefix: config-api-svc
