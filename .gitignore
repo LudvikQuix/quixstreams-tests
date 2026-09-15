@@ -31,3 +31,6 @@ state/
 Thumbs.db
 .idea/
 .vscode/
+
+# Quix CLI local secrets — never commit
+.secrets
