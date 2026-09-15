@@ -3,102 +3,117 @@ language: python
 variables:
   - name: input
     inputType: InputTopic
-    description: UI commands topic (DC power, ambient temp, chiller/heater settings)
-    defaultValue: ui-data
+    description: Dashboard command topic — signal setpoints and live parameter writes
+    defaultValue: dashboard-in
     required: true
   - name: output
     inputType: OutputTopic
-    description: Output topic for battery simulation data
-    defaultValue: battery-data
+    description: Battery telemetry topic read by the dashboard
+    defaultValue: dashboard-out
     required: true
+  - name: LEXICON_PATH
+    inputType: FreeText
+    description: Path to the signal/parameter lexicon. Also the seam for sourcing it from DCM later.
+    defaultValue: lexicon.json
+    required: false
+  - name: LOG_LEVEL
+    inputType: FreeText
+    description: "`DEBUG` emits the full payload every tick (10 lines/s)."
+    defaultValue: INFO
+    required: false
+  - name: APPLIED_ECHO_PERIOD_S
+    inputType: FreeText
+    description: How often the full applied signal/parameter set is echoed on the output topic.
+    defaultValue: "5"
+    required: false
   - name: Q_MAX_AH
     inputType: FreeText
-    description: Maximum charge capacity in Ah
+    description: FIXED — deploy-time only, not tunable at runtime. Maximum charge capacity in Ah.
     defaultValue: "100"
     required: false
   - name: SAMPLE_TIME
     inputType: FreeText
-    description: Simulation sample time in seconds
+    description: FIXED — deploy-time only, not tunable at runtime. Simulation sample time in seconds.
     defaultValue: "0.1"
     required: false
   - name: A_THERMAL
     inputType: FreeText
-    description: Thermal scaling coefficient (T = A * Heat)
+    description: "Thermal scaling coefficient (T = A * Heat). Startup default; tunable live over `dashboard-in`."
     defaultValue: "0.0002"
     required: false
   - name: KT0
     inputType: FreeText
-    description: Thermal constant term
+    description: "Thermal constant term. Startup default; tunable live over `dashboard-in`."
     defaultValue: "0"
     required: false
   - name: KT1
     inputType: FreeText
-    description: Thermal linear current coefficient
+    description: "Thermal linear current coefficient. Startup default; tunable live over `dashboard-in`."
     defaultValue: "0"
     required: false
   - name: KT2
     inputType: FreeText
-    description: "Thermal quadratic current coefficient (derived: 300A → +1°C/2s)"
+    description: "Thermal quadratic current coefficient (derived: 300A → +1°C/2s). Startup default; tunable live over `dashboard-in`."
     defaultValue: "0.0278"
     required: false
   - name: KE
     inputType: FreeText
-    description: "Thermal heat exchange coefficient (derived: equilibrium at |20A|/13°C ambient, τ≈52min)"
+    description: "Thermal heat exchange coefficient (derived: equilibrium at |20A|/13°C ambient, τ≈52min). Startup default; tunable live over `dashboard-in`."
     defaultValue: "1.6"
     required: false
   - name: TAU1
     inputType: FreeText
-    description: RC1 time constant in seconds (τ1 = R1·C1)
+    description: "RC1 time constant in seconds (τ1 = R1·C1). Startup default; tunable live over `dashboard-in`."
     defaultValue: "1"
     required: false
   - name: TAU2
     inputType: FreeText
-    description: RC2 time constant in seconds (τ2 = R2·C2)
+    description: "RC2 time constant in seconds (τ2 = R2·C2). Startup default; tunable live over `dashboard-in`."
     defaultValue: "600"
     required: false
   - name: R0
     inputType: FreeText
-    description: Internal series resistance (Ohm). Set 0 to disable R0 drop.
+    description: "Internal series resistance (Ohm). Set 0 to disable R0 drop. Startup default; tunable live over `dashboard-in`."
     defaultValue: "0.0"
     required: false
   - name: R1
     inputType: FreeText
-    description: RC1 branch resistance (Ohm). Set 0 to disable RC1 dynamics.
-    defaultValue: "0.0"
+    description: "RC1 branch resistance (Ohm). Set 0 to disable RC1 dynamics. Startup default; tunable live over `dashboard-in`."
+    defaultValue: "0.1"
     required: false
   - name: R2
     inputType: FreeText
-    description: RC2 branch resistance (Ohm). Set 0 to disable RC2 dynamics.
-    defaultValue: "0.0"
+    description: "RC2 branch resistance (Ohm). Set 0 to disable RC2 dynamics. Startup default; tunable live over `dashboard-in`."
+    defaultValue: "0.05"
     required: false
   - name: REQUESTED_POWER
     inputType: FreeText
-    description: Initial requested power in W (negative = discharge); overridden by ui-data topic
+    description: Initial requested power in W (negative = discharge); overridden live by `dashboard-in`
     defaultValue: "-8000"
     required: false
   - name: AMBIENT_TEMP
     inputType: FreeText
-    description: Initial ambient temperature in °C; overridden by ui-data topic
+    description: Initial ambient temperature in °C; overridden live by `dashboard-in`
     defaultValue: "15"
     required: false
   - name: CHILLER_SETTING
     inputType: FreeText
-    description: Initial chiller state (0=off, 1=low, 2=high); overridden by ui-data topic
+    description: Initial chiller state (0=off, 1=low, 2=high); overridden live by `dashboard-in`
     defaultValue: "0"
     required: false
   - name: HEATER_SETTING
     inputType: FreeText
-    description: Initial heater state (0=off, 1=low, 2=high); overridden by ui-data topic
+    description: Initial heater state (0=off, 1=low, 2=high); overridden live by `dashboard-in`
     defaultValue: "0"
     required: false
   - name: COOLANT_TEMP
     inputType: FreeText
-    description: Coolant temperature in °C — lower bound for battery temperature when chiller is active
+    description: "Coolant temperature in °C — lower bound for battery temperature when chiller is active. Startup default; tunable live over `dashboard-in`."
     defaultValue: "20"
     required: false
   - name: MAX_BATTERY_TEMP
     inputType: FreeText
-    description: Hard upper saturation for battery temperature in °C
+    description: "Hard upper saturation for battery temperature in °C. Startup default; tunable live over `dashboard-in`."
     defaultValue: "60"
     required: false
 dockerfile: dockerfile

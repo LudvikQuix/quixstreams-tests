@@ -76,56 +76,56 @@ def test_c2_requested_power_non_numeric_string_is_ignored_not_fatal(
     main_dunder_globals,
 ):
     """Validates spec §6.7 (wrong datatype -> field ignored, old value kept) for
-    §8 R1.2: {"requested_power_w": "fast"} must not crash the app. Today
-    float("fast") (main.py:224) raises an uncaught ValueError inside sdf.update,
-    which takes down consumer_app.run() and the whole service — so this test fails
-    with that ValueError before it can check that requested_power was left alone."""
+    §8 R1.2: {"requested_power_w": "fast"} must not crash the app. `cmd` is keyed
+    by lexicon wire name per §6.5.1 (requested_power -> requested_power_w)."""
     handle_command = main_dunder_globals["handle_command"]
     cmd = main_dunder_globals["cmd"]
-    original_power = cmd["requested_power"]
+    original_power = cmd["requested_power_w"]
 
     handle_command({"requested_power_w": "fast"})
 
-    assert cmd["requested_power"] == original_power
+    assert cmd["requested_power_w"] == original_power
 
 
-# --- C3: "requested_power_w" in value TypeError (main.py:223) ---
+# --- C3: shape gate is `is_command`, a filter placed BEFORE handle_command
+# (spec §6.5.6: "the shape check is a filter before the step ... never
+# try/except it"). handle_command itself is therefore entitled to assume a
+# dict and must not grow a redundant isinstance guard; these tests retarget
+# the real gate instead of calling handle_command with a non-dict directly.
 #
 # NOTE (surprise, see report): the spec's C3 description lists "a JSON array or
-# scalar payload" as reproducing this TypeError via `"requested_power_w" in value`.
-# That holds for genuinely non-iterable, non-container scalars (int, float, bool,
-# None) but NOT for a string or a list/dict — `"k" in "some string"` and
-# `"k" in [1, 2, 3]` are both valid Python (substring / membership checks) and
-# return False without raising. A JSON array payload does NOT crash main.py today;
-# it silently no-ops. Only int/float/bool/None payloads reproduce C3 as described.
-#
-# Also a surprise: the exact TypeError message is Python-version-dependent —
-# "argument of type 'int' is not iterable" on this environment's Python 3.12.10,
-# vs. "... is not a container or iterable" quoted in some other CPython versions.
-# These tests therefore assert on behaviour, not on exception message text.
+# scalar payload" as reproducing a TypeError via `"requested_power_w" in value`
+# inside the old if-ladder. That held for genuinely non-iterable, non-container
+# scalars (int, float, bool, None) but NOT for a string or a list/dict —
+# `"k" in "some string"` and `"k" in [1, 2, 3]` are both valid Python
+# (substring / membership checks) and returned False without raising even
+# before this change. `is_command` now rejects all of them uniformly by shape
+# (not dict), including the list case that never crashed but silently no-opped.
 
 
 def test_c3_non_dict_int_payload_is_ignored_not_fatal(main_dunder_globals):
-    """Validates spec §6.7 (message is not a JSON object -> dropped, service keeps
-    running) for §8 R1.3 (scalar case): a bare int payload. Today there is no
-    is_command filter, so it reaches `"requested_power_w" in value` (main.py:223)
-    and raises an uncaught TypeError instead of being safely ignored."""
-    handle_command = main_dunder_globals["handle_command"]
+    """Validates spec §6.5.6 (is_command is a shape-gate filter placed before
+    handle_command): a bare int payload, and a list payload (the surprise finding
+    that a list never crashed but silently no-opped — spec §6.7 "message is not a
+    JSON object -> dropped"), must both be rejected by is_command without ever
+    reaching handle_command, and cmd must be left untouched."""
+    is_command = main_dunder_globals["is_command"]
     cmd = main_dunder_globals["cmd"]
-    original_power = cmd["requested_power"]
+    original_power = cmd["requested_power_w"]
 
-    handle_command(42)
+    assert is_command(42) is False
+    assert is_command([1, 2]) is False
 
-    assert cmd["requested_power"] == original_power
+    assert cmd["requested_power_w"] == original_power
 
 
 def test_c3_none_payload_is_ignored_not_fatal(main_dunder_globals):
-    """Validates spec §6.7 for §8 R1.3 (scalar case): a `null` payload must not
-    crash the app either."""
-    handle_command = main_dunder_globals["handle_command"]
+    """Validates spec §6.5.6 for §8 R1.3 (scalar case): a `null` payload must be
+    rejected by the is_command shape gate before handle_command ever sees it."""
+    is_command = main_dunder_globals["is_command"]
     cmd = main_dunder_globals["cmd"]
-    original_power = cmd["requested_power"]
+    original_power = cmd["requested_power_w"]
 
-    handle_command(None)
+    assert is_command(None) is False
 
-    assert cmd["requested_power"] == original_power
+    assert cmd["requested_power_w"] == original_power
