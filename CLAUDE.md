@@ -244,6 +244,28 @@ each its own file under the ~500-line ceiling. A module boundary does not need t
 a deployment boundary, and making it one buys a topic hop, a second image and another
 thing to keep running for no gain.
 
+### D9 — Signals and parameters are two independent DCM configs (2026-09-15)
+
+The lexicon is published to DCM as **two configurations**, not one:
+
+| DCM type | target_key | content |
+|---|---|---|
+| `sil-signals` | the model name | `{lexicon_version, model, signals: [...]}` |
+| `sil-parameters` | the model name | `{lexicon_version, model, parameters: [...]}` |
+
+They version independently, which is the point: parameters are tuned constantly and
+signals change only when the plant's interface does. One combined config made every
+tuning write bump the signal lexicon's version too, and made "what changed in the
+signal set" unanswerable from version history.
+
+Both carry `model` so a mismatched pair is detectable rather than silently merged.
+The dashboard fetches both, tracks a revision per config, and degrades honestly when
+either is missing — signals present but parameters absent still yields a usable
+read-only dashboard.
+
+Source of truth stays in the repo as two files, so the on-disk shape matches the DCM
+shape and no transform step sits between them.
+
 ## 8. Open questions — resolve before building, do not guess
 
 *None open. All Phase 1 and Phase 2 design questions are resolved in §7.*
