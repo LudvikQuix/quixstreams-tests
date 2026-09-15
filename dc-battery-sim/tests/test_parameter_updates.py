@@ -114,7 +114,9 @@ def test_enum_value_outside_allowed_set_is_rejected(fresh_main):
     """Validates spec §6.7 coerce(): enum membership is checked against the
     descriptor's `enum` list; 5 is not in chiller_setting's {0, 1, 2}. This is also
     the fix for crash path C1 (§8 R1.1): once apply_updates/coerce sit in front of
-    `cmd`, an out-of-range chiller_setting never reaches CHILLER_POWERS[...]."""
+    `cmd`, an out-of-range chiller_setting never reaches the per-tick
+    `chiller_powers.get(...)` lookup built by `power_map()` (main.py:249,
+    called at main.py:362)."""
     changed = fresh_main.apply_updates(
         fresh_main.cmd, fresh_main.SIGNAL_SPEC, {"chiller_setting": 5}, "signal"
     )
@@ -124,7 +126,8 @@ def test_enum_value_outside_allowed_set_is_rejected(fresh_main):
 
 def test_enum_value_is_canonicalized_to_int(fresh_main):
     """Validates spec §6.7: 'Enum values are canonicalised ... a wire 1.0 is stored
-    as 1. This matters: CHILLER_POWERS / HEATER_POWERS are dicts keyed by int.'"""
+    as 1. This matters: the dicts returned by `power_map()` (main.py:249) are
+    keyed by int.'"""
     changed = fresh_main.apply_updates(
         fresh_main.cmd, fresh_main.SIGNAL_SPEC, {"chiller_setting": 1.0}, "signal"
     )

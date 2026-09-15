@@ -21,7 +21,10 @@ out. Nothing here reimplements main.py logic.
 """
 
 
-# --- C1: CHILLER_POWERS[n] / HEATER_POWERS[n] KeyError (main.py:131-132) ---
+# --- C1: chiller_powers[n] / heater_powers[n] KeyError, per-tick power_map()
+# lookups built at main.py:362-365 (was CHILLER_POWERS[n] / HEATER_POWERS[n]
+# module constants when this test was first written; the C1 backstop
+# `.get(setting, 0.0)` at main.py:364-365 is what these tests now exercise) ---
 
 
 def test_c1_chiller_setting_out_of_range_does_not_crash_the_service(
@@ -29,9 +32,9 @@ def test_c1_chiller_setting_out_of_range_does_not_crash_the_service(
 ):
     """Validates spec §6.7 (enum value not in the allowed set -> field ignored,
     service keeps running) for §8 R1.1: {"chiller_setting": 5} must not kill the
-    producer thread. Today CHILLER_POWERS[5] raises an uncaught KeyError
-    (main.py:131) inside the daemon thread, so this test fails with that KeyError
-    instead of reaching the assertion."""
+    producer thread. The per-tick `chiller_powers.get(setting, 0.0)` lookup
+    (main.py:364) is the C1 backstop that keeps this from raising an uncaught
+    KeyError inside the daemon thread."""
     fresh_main.cmd["chiller_setting"] = 5
     harness = sim_harness(fresh_main)
     ticks = harness.wait_for_ticks(1)
@@ -42,7 +45,8 @@ def test_c1_chiller_setting_negative_does_not_crash_the_service(
     fresh_main, sim_harness
 ):
     """Validates spec §6.7, negative variant of §8 R1.1: {"chiller_setting": -1} has
-    no entry in CHILLER_POWERS (main.py:38: keys are only 0, 1, 2) either."""
+    no entry in the power map built by `power_map()` (main.py:249: keys are only
+    0, 1, 2) either."""
     fresh_main.cmd["chiller_setting"] = -1
     harness = sim_harness(fresh_main)
     ticks = harness.wait_for_ticks(1)
@@ -52,9 +56,10 @@ def test_c1_chiller_setting_negative_does_not_crash_the_service(
 def test_c1_heater_setting_out_of_range_does_not_crash_the_service(
     fresh_main, sim_harness
 ):
-    """Validates spec §6.7 for §8 R1.1: {"heater_setting": 5} -> HEATER_POWERS[5]
-    KeyError (main.py:132). chiller_setting is left at its valid default (0) so the
-    chiller lookup on the preceding line does not mask this one."""
+    """Validates spec §6.7 for §8 R1.1: {"heater_setting": 5} -> the heater power
+    map's `.get(setting, 0.0)` lookup (main.py:365) must not raise a KeyError.
+    chiller_setting is left at its valid default (0) so the chiller lookup on the
+    preceding line does not mask this one."""
     fresh_main.cmd["heater_setting"] = 5
     harness = sim_harness(fresh_main)
     ticks = harness.wait_for_ticks(1)
@@ -69,7 +74,9 @@ def test_c1_heater_setting_negative_does_not_crash_the_service(fresh_main, sim_h
     assert len(ticks) == 1
 
 
-# --- C2: float("fast") ValueError (main.py:224) ---
+# --- C2: wrong-datatype rejection, now handled by coerce() (main.py:140) /
+# apply_updates() (main.py:166) instead of the old hand-written float(...)
+# ValueError path ---
 
 
 def test_c2_requested_power_non_numeric_string_is_ignored_not_fatal(
