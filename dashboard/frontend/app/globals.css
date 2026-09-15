@@ -1,0 +1,180 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 96%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 98%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 96%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 217 100% 50%; /* Quix blue #0064ff - brand color */
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 86%; /* Light gray for secondary actions - improved contrast */
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 20% 90%; /* De-emphasized content */
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 60% 88%; /* Highlights and hover states */
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    /* Industrial professional semantic colors - muted for technical context */
+    --destructive: 0 35% 45%; /* Muted maroon - professional destructive */
+    --destructive-foreground: 0 0% 100%;
+    --success: 170 35% 40%; /* Muted teal - industrial success */
+    --success-foreground: 0 0% 100%;
+    --warning: 35 40% 42%; /* Muted bronze/amber - equipment ready */
+    --warning-foreground: 0 0% 100%;
+    --info: 210 35% 48%; /* Muted slate blue - industrial palette aligned */
+    --info-foreground: 0 0% 100%;
+
+    --border: 214.3 31.8% 87.4%;
+    --input: 214.3 31.8% 87%; /* Slightly darker for better definition */
+    --ring: 217 100% 50%;
+    --radius: 0.5rem;
+
+    /* Neon accent, taken from the QuixLab canvas: violet with an electric-blue
+       partner. Deliberately the only saturated colour in an otherwise muted
+       industrial palette, so it marks just what the eye should land on first.
+       Deeper in light mode, because true neon reads as washed-out grey on a
+       near-white background. */
+    --neon: 258 82% 52%;
+    --neon-foreground: 0 0% 100%;
+    --neon-glow: 258 82% 52%;
+    --neon-alt: 217 91% 55%;
+    --neon-pass: 145 80% 33%;
+    --neon-fail: 2 78% 47%;
+    --neon-warn: 30 92% 45%;
+
+    /* Journal category colors - industrial subdued palette */
+    --journal-safety: 0 35% 45%; /* Muted maroon */
+    --journal-setup: 170 35% 40%; /* Muted teal */
+    --journal-testing: 260 30% 45%; /* Muted purple-gray */
+    --journal-location: 30 35% 45%; /* Muted bronze */
+    --journal-hw: 40 35% 45%; /* Muted gold-brown */
+    --journal-sw: 185 32% 42%; /* Muted cyan-gray */
+  }
+
+  .dark {
+    --background: 0 0% 10.2%; /* rgb(26, 26, 27) */
+    --foreground: 210 8% 92%; /* #eaedf0 */
+    --card: 225 6% 13%; /* rgb(34, 34, 41) */
+    --card-foreground: 210 8% 92%;
+    --popover: 225 6% 13%;
+    --popover-foreground: 210 8% 92%;
+    --primary: 217 100% 50%; /* Quix blue #0064ff - brand color */
+    --primary-foreground: 210 40% 98%; /* Fixed: white text on blue */
+    --secondary: 225 5% 17%; /* Darker gray for secondary actions */
+    --secondary-foreground: 210 40% 98%;
+    --muted: 225 5% 14%; /* Even darker for de-emphasized content */
+    --muted-foreground: 215 16.3% 60%;
+    --accent: 225 8% 20%; /* Slightly lighter for highlights */
+    --accent-foreground: 210 40% 98%;
+
+    /* Industrial professional semantic colors - dark mode optimized */
+    --destructive: 0 40% 52%; /* Muted maroon - higher visibility */
+    --destructive-foreground: 0 0% 100%;
+    --success: 170 38% 45%; /* Muted teal - higher visibility */
+    --success-foreground: 0 0% 100%;
+    --warning: 35 45% 50%; /* Muted bronze/amber - higher visibility */
+    --warning-foreground: 0 0% 10%;
+    --info: 210 35% 55%; /* Muted slate blue - higher visibility */
+    --info-foreground: 0 0% 100%;
+
+    --border: 225 6% 26%; /* #434352 */
+    --input: 225 6% 30%; /* Slightly lighter for input fields */
+    --ring: 217 100% 50%;
+
+    /* Full neon on dark, where it can actually glow - the QuixLab lavender. */
+    --neon: 255 92% 76%;
+    --neon-foreground: 258 40% 12%;
+    --neon-glow: 255 95% 70%;
+    --neon-alt: 217 91% 60%;
+    --neon-pass: 142 82% 46%;
+    --neon-fail: 0 84% 57%;
+    --neon-warn: 30 96% 56%;
+
+    /* Journal category colors - dark mode optimized */
+    --journal-safety: 0 40% 52%; /* Muted maroon */
+    --journal-setup: 170 38% 45%; /* Muted teal */
+    --journal-testing: 260 35% 52%; /* Muted purple-gray */
+    --journal-location: 30 40% 52%; /* Muted bronze */
+    --journal-hw: 40 40% 52%; /* Muted gold-brown */
+    --journal-sw: 185 38% 48%; /* Muted cyan-gray */
+  }
+
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Remove the native disclosure triangle from <details>/<summary> so our
+     custom chevron is the only affordance. Applied globally because <details>
+     is only used in CollapsibleSection; no other component uses it. */
+  details > summary {
+    list-style: none;
+  }
+
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  /* Dark theme scrollbar styling */
+  .dark {
+    /* Webkit browsers (Chrome, Safari, Edge) */
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: hsl(var(--muted));
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: hsl(var(--border));
+      border-radius: 5px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: hsl(var(--muted-foreground));
+    }
+
+    /* Firefox */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: hsl(var(--border)) hsl(var(--muted));
+    }
+
+  }
+
+}
+
+/* ================================================================
+   DESIGN VARIANTS
+   Applied via data-variant on <html>. "common" (no attribute) is
+   the original layout, unchanged.
+
+   Three variants: common (no attribute), editorial (tabs), showcase
+   (rings, fewer columns, verdict-first). Token overrides here are
+   only for properties that are structural in effect (e.g. radius
+   changes the chrome weight of every element).
+   ================================================================ */
+
+/* ── VARIANT: showcase ──────────────────────────────────────────
+   Marketing demo view. Larger radius so the cards feel polished,
+   not sharp. All structural changes are in the TSX layout.       */
+[data-variant="showcase"] {
+  --radius: 0.75rem;
+}
+
+/* ── VARIANT: editorial ─────────────────────────────────────────
+   Tab-segmented detail layout. Radius stays at default; the tab
+   chrome provides the structural differentiation.                */

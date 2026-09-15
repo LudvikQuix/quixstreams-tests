@@ -18,6 +18,10 @@ node_modules/
 dist/
 build/
 .vite/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
 
 # State / local runtime
 state/

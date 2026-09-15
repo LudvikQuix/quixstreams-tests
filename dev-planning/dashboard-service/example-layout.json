@@ -1,0 +1,152 @@
+{
+  "layout_version": "1.0",
+  "layout_id": "battery-bring-up",
+  "name": "Battery bring-up",
+  "description": "Drive the pack with a power setpoint and the chiller, tune the ambient heat-exchange coefficient, and watch SOC, current, temperature and terminal voltage. Every binding resolves against dc-battery-sim/lexicon.json.",
+  "model": {
+    "name": "dc-battery-sim",
+    "lexicon_version": "1.0"
+  },
+  "grid": {
+    "cols": 12,
+    "row_height": 60,
+    "margin": [12, 12],
+    "compact_type": "vertical"
+  },
+  "elements": [
+    {
+      "id": "el-power",
+      "type": "knob",
+      "title": null,
+      "binding": {
+        "collection": "signals",
+        "name": "requested_power_w",
+        "direction": "input"
+      },
+      "position": { "x": 0, "y": 0, "w": 4, "h": 3, "min_w": 3, "min_h": 2 },
+      "options": {
+        "min": -50000.0,
+        "max": 50000.0,
+        "step": 250.0,
+        "scale": "linear",
+        "show_input": true
+      }
+    },
+    {
+      "id": "el-chiller",
+      "type": "switch",
+      "title": null,
+      "binding": {
+        "collection": "signals",
+        "name": "chiller_setting",
+        "direction": "input"
+      },
+      "position": { "x": 4, "y": 0, "w": 4, "h": 3, "min_w": 3, "min_h": 2 },
+      "options": {
+        "style": "segmented",
+        "on_value": null,
+        "off_value": null
+      }
+    },
+    {
+      "id": "el-ke",
+      "type": "knob",
+      "title": "Heat exchange (KE)",
+      "binding": {
+        "collection": "parameters",
+        "name": "KE",
+        "direction": null
+      },
+      "position": { "x": 8, "y": 0, "w": 4, "h": 3, "min_w": 3, "min_h": 2 },
+      "options": {
+        "min": null,
+        "max": null,
+        "step": 0.05,
+        "scale": "linear",
+        "show_input": true
+      }
+    },
+    {
+      "id": "el-soc",
+      "type": "readout",
+      "title": null,
+      "binding": {
+        "collection": "signals",
+        "name": "soc_percent",
+        "direction": "output"
+      },
+      "position": { "x": 0, "y": 3, "w": 3, "h": 2, "min_w": 2, "min_h": 2 },
+      "options": {
+        "decimals": 1,
+        "show_unit": true,
+        "thresholds": [
+          { "op": "lt", "value": 10.0, "tone": "danger" },
+          { "op": "lt", "value": 20.0, "tone": "warn" }
+        ],
+        "stale_after_ms": 2000
+      }
+    },
+    {
+      "id": "el-current",
+      "type": "readout",
+      "title": null,
+      "binding": {
+        "collection": "signals",
+        "name": "dc_current_a",
+        "direction": "output"
+      },
+      "position": { "x": 3, "y": 3, "w": 3, "h": 2, "min_w": 2, "min_h": 2 },
+      "options": {
+        "decimals": 1,
+        "show_unit": true,
+        "thresholds": null,
+        "stale_after_ms": 2000
+      }
+    },
+    {
+      "id": "el-temp-chart",
+      "type": "chart",
+      "title": null,
+      "binding": {
+        "collection": "signals",
+        "name": "temperature_c",
+        "direction": "output"
+      },
+      "position": { "x": 6, "y": 3, "w": 6, "h": 4, "min_w": 4, "min_h": 3 },
+      "options": {
+        "window_s": 60.0,
+        "y_min": null,
+        "y_max": null,
+        "y_autoscale": false,
+        "stroke": "#f97316",
+        "fill": false,
+        "points": false,
+        "stale_after_ms": 2000
+      }
+    },
+    {
+      "id": "el-voltage-chart",
+      "type": "chart",
+      "title": null,
+      "binding": {
+        "collection": "signals",
+        "name": "dc_voltage_v",
+        "direction": "output"
+      },
+      "position": { "x": 0, "y": 5, "w": 6, "h": 4, "min_w": 4, "min_h": 3 },
+      "options": {
+        "window_s": 60.0,
+        "y_min": null,
+        "y_max": null,
+        "y_autoscale": true,
+        "stroke": "#38bdf8",
+        "fill": false,
+        "points": false,
+        "stale_after_ms": 2000
+      }
+    }
+  ],
+  "created_at": null,
+  "updated_at": null,
+  "updated_by": null
+}

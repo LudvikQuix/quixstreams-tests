@@ -1,0 +1,110 @@
+name: dashboard
+language: python
+variables:
+  # THE NAMING TRAP, INVERTED. The dashboard's INPUT is the topic called
+  # `dashboard-out`, and its OUTPUT is the topic called `dashboard-in` — topic
+  # names are from the pipeline's point of view (CLAUDE.md §2). These variables
+  # are named for the dashboard's own direction so nobody has to re-derive that.
+  - name: telemetry_in
+    inputType: InputTopic
+    description: Telemetry from the plant. This is the topic named `dashboard-out`.
+    defaultValue: dashboard-out
+    required: true
+  - name: control_out
+    inputType: OutputTopic
+    description: Control writes to the plant. This is the topic named `dashboard-in`.
+    defaultValue: dashboard-in
+    required: true
+  - name: PLANT_KEY
+    inputType: FreeText
+    description: >-
+      Kafka key on every control message. Partial update is last-write-wins and
+      needs a total order, so this is mandatory. `battery-sim` for this plant —
+      note it is NOT the lexicon's model.name (lexicon v1.1 / OQ-6 closes that).
+    required: true
+  - name: CONFIG_API_URL
+    inputType: FreeText
+    description: Cluster-internal DCM service name. The lexicon is read from here (D3).
+    defaultValue: http://config-api-svc
+    required: true
+  - name: LEXICON_TYPE
+    inputType: FreeText
+    description: DCM configuration type holding the lexicon.
+    defaultValue: sil-lexicon
+    required: true
+  - name: LEXICON_TARGET_KEY
+    inputType: FreeText
+    description: >-
+      DCM target_key of the lexicon — the plant model name (`dc-battery-sim`).
+      The one variable that names the plant; changing it swaps the model.
+    required: true
+  - name: LEXICON_REFRESH_S
+    inputType: FreeText
+    description: TTL poll period for the lexicon. M2 replaces it with a config-topic event.
+    defaultValue: "900"
+    required: false
+  - name: LEXICON_BOOT_TIMEOUT_S
+    inputType: FreeText
+    description: How long to retry the DCM at boot before exiting non-zero. No fallback copy ships in the image.
+    defaultValue: "60"
+    required: false
+  - name: HISTORY_SECONDS
+    inputType: FreeText
+    description: Depth of the in-memory chart window shipped to each client on connect (D6).
+    defaultValue: "60"
+    required: false
+  - name: HISTORY_MAX_SAMPLES
+    inputType: FreeText
+    description: Hard cap on window length, so a fast plant cannot grow it without bound.
+    defaultValue: "6000"
+    required: false
+  - name: WS_FLUSH_HZ
+    inputType: FreeText
+    description: WebSocket batch rate. 10 = pass-through at this plant's sample rate.
+    defaultValue: "10"
+    required: false
+  - name: WS_QUEUE_MAX
+    inputType: FreeText
+    description: Per-connection send queue depth. Telemetry frames are dropped past it; control state never is.
+    defaultValue: "20"
+    required: false
+  - name: WS_STALL_TIMEOUT_S
+    inputType: FreeText
+    description: A connection whose queue stays full this long is closed with 1013 so the client reconnects clean.
+    defaultValue: "30"
+    required: false
+  - name: WRITE_COALESCE_MS
+    inputType: FreeText
+    description: Writer coalescing window. Bounds control traffic no matter how many tabs are dragging.
+    defaultValue: "50"
+    required: false
+  - name: APPLIED_TIMEOUT_MS
+    inputType: FreeText
+    description: >-
+      How long a control waits for an `applied` echo before rendering
+      unconfirmed. Default is the sim's 5 s heartbeat plus slack.
+    defaultValue: "7000"
+    required: false
+  - name: HTTP_PORT
+    inputType: FreeText
+    description: Container port uvicorn binds. The deployment maps public port 80 to it.
+    defaultValue: "8080"
+    required: false
+  - name: STATIC_DIR
+    inputType: FreeText
+    description: Directory holding the exported Next.js bundle inside the image.
+    defaultValue: static
+    required: false
+  - name: DASHBOARD_CONSUMER_GROUP
+    inputType: FreeText
+    description: Consumer group for the telemetry read. Bump it to re-attach from latest.
+    defaultValue: sil-dashboard
+    required: false
+  - name: LOG_LEVEL
+    inputType: FreeText
+    description: Root log level for the service and uvicorn.
+    defaultValue: INFO
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

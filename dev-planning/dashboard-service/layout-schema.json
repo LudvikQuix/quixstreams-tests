@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quix.io/schemas/dashboard-layout/1.0.json",
+  "title": "SIL dashboard grid layout",
+  "description": "One user-built dashboard grid. Persisted in DCM (D5) as configuration type 'dashboard-layout', target_key = layout_id, category = the plant model name. Element positions are stored in the 12-column 'lg' coordinate space only; narrower breakpoints are derived at render time by react-grid-layout and are never persisted.",
+  "type": "object",
+  "required": [
+    "layout_version",
+    "layout_id",
+    "name",
+    "description",
+    "model",
+    "grid",
+    "elements"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "layout_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "Schema version of this document shape. The dashboard refuses an unknown MAJOR and renders the layout read-only."
+    },
+    "layout_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$",
+      "description": "Slug. Also the DCM target_key, so DCM's configuration id is sha1(f'dashboard-layout-{layout_id}')."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "Human name shown in the layout picker."
+    },
+    "description": {
+      "type": "string",
+      "description": "Free text. Empty string when unused; never absent."
+    },
+    "model": {
+      "type": "object",
+      "description": "Which plant this layout was authored against. Used to warn (never to block) when the loaded lexicon does not match.",
+      "required": ["name", "lexicon_version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Copied from the lexicon's model.name at save time. Also written to DCM metadata.category."
+        },
+        "lexicon_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Copied from the lexicon's lexicon_version at save time."
+        }
+      }
+    },
+    "grid": { "$ref": "#/$defs/grid" },
+    "elements": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/element" },
+      "description": "Unique on `id`. Order is irrelevant; `position` decides placement."
+    },
+    "created_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Set by the backend on first save. Null in a client-authored draft."
+    },
+    "updated_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Set by the backend on every save."
+    },
+    "updated_by": {
+      "type": ["string", "null"],
+      "description": "Opaque identity string from the portal session, or null."
+    }
+  },
+  "$defs": {
+    "grid": {
+      "type": "object",
+      "required": ["cols", "row_height", "margin", "compact_type"],
+      "additionalProperties": false,
+      "properties": {
+        "cols": {
+          "type": "integer",
+          "const": 12,
+          "description": "Fixed at 12 for v1.0. Element x/w are in this coordinate space at every breakpoint; react-grid-layout reflows for narrower screens."
+        },
+        "row_height": { "type": "integer", "minimum": 20, "maximum": 200 },
+        "margin": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "integer", "minimum": 0, "maximum": 48 },
+          "description": "[horizontal, vertical] gap in px."
+        },
+        "compact_type": {
+          "enum": ["vertical", "horizontal", null],
+          "description": "react-grid-layout compaction. null = free placement."
+        }
+      }
+    },
+    "position": {
+      "type": "object",
+      "required": ["x", "y", "w", "h", "min_w", "min_h"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "integer", "minimum": 0, "maximum": 11 },
+        "y": { "type": "integer", "minimum": 0 },
+        "w": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "h": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "min_w": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "min_h": { "type": "integer", "minimum": 1, "maximum": 40 }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "description": "Addresses exactly one lexicon entry. The triple (collection, name, direction) is required because lexicon `signals` is unique on (name, direction), not on name alone — see parameter-contract spec §6.1.",
+      "required": ["collection", "name", "direction"],
+      "additionalProperties": false,
+      "properties": {
+        "collection": { "enum": ["signals", "parameters"] },
+        "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "direction": { "enum": ["input", "output", null] }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "collection": { "const": "signals" } },
+            "required": ["collection"]
+          },
+          "then": { "properties": { "direction": { "enum": ["input", "output"] } } }
+        },
+        {
+          "if": {
+            "properties": { "collection": { "const": "parameters" } },
+            "required": ["collection"]
+          },
+          "then": { "properties": { "direction": { "type": "null" } } }
+        }
+      ]
+    },
+    "threshold": {
+      "type": "object",
+      "required": ["op", "value", "tone"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "enum": ["lt", "lte", "gt", "gte"] },
+        "value": { "type": "number" },
+        "tone": { "enum": ["ok", "warn", "danger"] }
+      }
+    },
+    "switchOptions": {
+      "type": "object",
+      "required": ["style", "on_value", "off_value"],
+      "additionalProperties": false,
+      "properties": {
+        "style": {
+          "enum": ["toggle", "segmented", "select"],
+          "description": "toggle = two states; segmented = one button per enum member; select = dropdown. Default chosen from the descriptor: bool -> toggle, enum with 2 members -> toggle, 3..6 -> segmented, >6 -> select."
+        },
+        "on_value": {
+          "type": ["number", "boolean", "string", "null"],
+          "description": "Only for style 'toggle'. Null means: bool -> true, enum -> the second member's value."
+        },
+        "off_value": {
+          "type": ["number", "boolean", "string", "null"],
+          "description": "Only for style 'toggle'. Null means: bool -> false, enum -> the first member's value."
+        }
+      }
+    },
+    "knobOptions": {
+      "type": "object",
+      "required": ["min", "max", "step", "scale", "show_input"],
+      "additionalProperties": false,
+      "properties": {
+        "min": {
+          "type": ["number", "null"],
+          "description": "Null = use the descriptor's min. A non-null value may only NARROW the descriptor range; the backend rejects a widening on save."
+        },
+        "max": {
+          "type": ["number", "null"],
+          "description": "Null = use the descriptor's max. Narrowing only."
+        },
+        "step": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0,
+          "description": "Null = derived: 1 for int/uint, (max-min)/200 for float."
+        },
+        "scale": {
+          "enum": ["linear", "log"],
+          "description": "'log' requires the effective min and max to be strictly positive; needed for wide-dynamic-range coefficients."
+        },
+        "show_input": {
+          "type": "boolean",
+          "description": "Render a numeric entry box beside the slider for exact values."
+        }
+      }
+    },
+    "typeinOptions": {
+      "type": "object",
+      "required": ["placeholder", "commit_on", "decimals"],
+      "additionalProperties": false,
+      "properties": {
+        "placeholder": { "type": ["string", "null"] },
+        "commit_on": {
+          "enum": ["blur", "enter", "both"],
+          "description": "When the typed value is published. Never on keystroke."
+        },
+        "decimals": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 12,
+          "description": "Display precision. Null = as typed."
+        }
+      }
+    },
+    "readoutOptions": {
+      "type": "object",
+      "required": ["decimals", "show_unit", "thresholds", "stale_after_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "decimals": { "type": ["integer", "null"], "minimum": 0, "maximum": 12 },
+        "show_unit": { "type": "boolean" },
+        "thresholds": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/threshold" },
+          "description": "Evaluated in order; first match wins. Null = no tinting."
+        },
+        "stale_after_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "description": "No sample for this long -> render the last value dimmed with a stale badge."
+        }
+      }
+    },
+    "chartOptions": {
+      "type": "object",
+      "required": [
+        "window_s",
+        "y_min",
+        "y_max",
+        "y_autoscale",
+        "stroke",
+        "fill",
+        "points",
+        "stale_after_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "window_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 3600,
+          "description": "Visible time span. Clamped at render to the backend's HISTORY_SECONDS."
+        },
+        "y_min": {
+          "type": ["number", "null"],
+          "description": "Null = use the descriptor's min as the axis hint (an output descriptor's min/max is a display hint only; the plant may legitimately exceed it)."
+        },
+        "y_max": { "type": ["number", "null"] },
+        "y_autoscale": {
+          "type": "boolean",
+          "description": "True overrides y_min/y_max and fits the visible window."
+        },
+        "stroke": {
+          "type": ["string", "null"],
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "description": "Null = the theme's next series colour."
+        },
+        "fill": { "type": "boolean" },
+        "points": { "type": "boolean" },
+        "stale_after_ms": { "type": "integer", "minimum": 100 }
+      }
+    },
+    "element": {
+      "type": "object",
+      "required": ["id", "type", "title", "binding", "position", "options"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "description": "Stable for the life of the element. Unique within the layout."
+        },
+        "type": { "enum": ["switch", "knob", "typein", "readout", "chart"] },
+        "title": {
+          "type": ["string", "null"],
+          "maxLength": 80,
+          "description": "Null = render the bound descriptor's `label`."
+        },
+        "binding": {
+          "anyOf": [{ "$ref": "#/$defs/binding" }, { "type": "null" }],
+          "description": "Null = a placed but unbound element. A binding that no longer resolves against the lexicon is NOT rewritten to null; it is kept and rendered in the unbound state so a lexicon regression cannot destroy a layout."
+        },
+        "position": { "$ref": "#/$defs/position" },
+        "options": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "switch" } }, "required": ["type"] },
+          "then": { "properties": { "options": { "$ref": "#/$defs/switchOptions" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "knob" } }, "required": ["type"] },
+          "then": { "properties": { "options": { "$ref": "#/$defs/knobOptions" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "typein" } }, "required": ["type"] },
+          "then": { "properties": { "options": { "$ref": "#/$defs/typeinOptions" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "readout" } }, "required": ["type"] },
+          "then": { "properties": { "options": { "$ref": "#/$defs/readoutOptions" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "chart" } }, "required": ["type"] },
+          "then": { "properties": { "options": { "$ref": "#/$defs/chartOptions" } } }
+        }
+      ]
+    }
+  }
+}

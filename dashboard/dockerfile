@@ -1,0 +1,29 @@
+# Two stages, one shipped runtime. Node exists only to turn the Next.js app into
+# a static export; the image that runs in Quix is a Python image with no Node in
+# it, because the container runs exactly one process (spec 6.1, shape C).
+
+FROM node:20-bookworm-slim AS webbuild
+WORKDIR /web
+# package-lock.json is optional here on purpose: no lockfile is committed yet, so
+# `npm ci` would fail the build. Commit one and switch this to `npm ci` for a
+# reproducible frontend build.
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install --no-audit --no-fund
+COPY frontend/ ./
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+# 3.12.5 matches dc-battery-sim rather than the newer 3.13: it is the base image
+# this repo already builds quixstreams (and rocksdict) against successfully.
+FROM python:3.12.5-slim-bookworm
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=UTF-8 \
+    PYTHONPATH="/app"
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY main.py ./
+COPY backend/ ./backend/
+COPY --from=webbuild /web/out ./static
+ENTRYPOINT ["python3", "main.py"]

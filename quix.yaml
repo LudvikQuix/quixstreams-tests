@@ -197,6 +197,124 @@ deployments:
         inputType: FreeText
         value: "0"
 
+  # The dashboard. ONE deployment, ONE image, ONE process: the Next.js UI is built
+  # to a static export at image-build time and served by the same Python process
+  # that runs the QuixStreams consumer, so the page, the JSON API and the
+  # WebSocket all come from one origin - no CORS, no second public URL, no
+  # WebSocket-through-a-proxy hop. See dev-planning/dashboard-service/architecture.md.
+  #
+  # Reads dashboard-out (telemetry_in), writes dashboard-in (control_out) - the
+  # naming trap in CLAUDE.md section 2, inverted from the dashboard's point of view.
+  #
+  # Single replica is a CORRECTNESS requirement, not a sizing choice: all
+  # dashboard-out traffic carries one key so it lands on one partition, and a
+  # second replica in the same consumer group would be handed no partition and
+  # would serve blank charts to whichever browsers the ingress routed to it. If
+  # this ever has to scale, each replica needs its OWN consumer group.
+  #
+  # No `state:` block: the chart window is in memory (CLAUDE.md D6) and the SDF
+  # uses no stateful operation, so there is no RocksDB volume and no changelog.
+  - name: SIL Dashboard
+    application: dashboard
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        # Sized for uvicorn + the QS consumer + an 8 MB window + WS fan-out. The
+        # template default (200m / 500 MB) is too small for a Python process doing
+        # JSON at 10 Hz while serving static assets.
+        cpu: 500
+        memory: 1000
+    desiredStatus: Running
+    publicAccess:
+      enabled: true
+      urlPrefix: sil-dashboard
+    network:
+      serviceName: sil-dashboard
+      ports:
+        - port: 80
+          targetPort: 8080
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      sidebarItem:
+        show: true
+        label: SIL Dashboard
+        icon: dashboard
+        order: 0
+    variables:
+      - name: telemetry_in
+        inputType: InputTopic
+        required: true
+        value: dashboard-out
+      - name: control_out
+        inputType: OutputTopic
+        required: true
+        value: dashboard-in
+      # NOT the lexicon's model.name ("dc-battery-sim"): the sim keys its messages
+      # "battery-sim" (main.py:430). Until lexicon v1.1 carries model.instance_key
+      # this is the one piece of the plant contract that lives in a variable.
+      - name: PLANT_KEY
+        inputType: FreeText
+        required: true
+        value: battery-sim
+      # In-cluster DNS name of the DCM, from its network.serviceName above.
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        required: true
+        value: http://config-api-svc
+      - name: LEXICON_TYPE
+        inputType: FreeText
+        required: true
+        value: sil-lexicon
+      # The one variable that names the plant. Swapping the model means seeding a
+      # new lexicon and changing this and PLANT_KEY - no dashboard code changes.
+      - name: LEXICON_TARGET_KEY
+        inputType: FreeText
+        required: true
+        value: dc-battery-sim
+      - name: LEXICON_REFRESH_S
+        inputType: FreeText
+        value: "900"
+      - name: LEXICON_BOOT_TIMEOUT_S
+        inputType: FreeText
+        value: "60"
+      - name: HISTORY_SECONDS
+        inputType: FreeText
+        value: "60"
+      - name: HISTORY_MAX_SAMPLES
+        inputType: FreeText
+        value: "6000"
+      - name: WS_FLUSH_HZ
+        inputType: FreeText
+        value: "10"
+      - name: WS_QUEUE_MAX
+        inputType: FreeText
+        value: "20"
+      - name: WS_STALL_TIMEOUT_S
+        inputType: FreeText
+        value: "30"
+      - name: WRITE_COALESCE_MS
+        inputType: FreeText
+        value: "50"
+      - name: APPLIED_TIMEOUT_MS
+        inputType: FreeText
+        value: "7000"
+      - name: HTTP_PORT
+        inputType: FreeText
+        value: "8080"
+      - name: STATIC_DIR
+        inputType: FreeText
+        value: static
+      - name: DASHBOARD_CONSUMER_GROUP
+        inputType: FreeText
+        value: sil-dashboard
+      - name: LOG_LEVEL
+        inputType: FreeText
+        value: INFO
+
 topics:
   # Control commands from the dashboard. Low volume - a message per user interaction.
   # 1 partition: the sim is single-replica and command ordering must be total, since
