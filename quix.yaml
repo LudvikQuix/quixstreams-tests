@@ -66,11 +66,10 @@ deployments:
     # host in config-seeder's DCM_API_URL. publicAccess/urlPrefix only controls the
     # EXTERNAL hostname - setting it alone leaves the deployment with no internal name
     # at all, and the seeder dies with "Failed to resolve 'config-api-svc'".
+    # No `ports:` here - a Managed deployment rejects them ("Managed deployments do not
+    # support custom ports"); the platform derives the port from the `port` setting below.
     network:
       serviceName: config-api-svc
-      ports:
-        - port: 80
-          targetPort: 80
     publicAccess:
       enabled: true
       urlPrefix: config-api-svc
