@@ -187,12 +187,24 @@ Satisfies the global rule against hand-rolled breakpoints. Two additions Phase 2
 that TestManager does not have: a grid layout engine (`react-grid-layout`) and a
 streaming-capable chart library — prefer `uPlot` over Recharts at 10 Hz.
 
+### D5 — Grid layouts persist in DCM (2026-09-15)
+
+A layout is versioned JSON config, which is exactly what DCM stores. It survives a
+browser change, is shareable between users, and gets version history for free.
+Browser storage is per-device and loses work; a dedicated topic reinvents DCM.
+Layouts live under their own DCM config type, separate from the lexicon.
+
+### D6 — Chart history is a backend rolling window, not the lakehouse (2026-09-15)
+
+The dashboard backend keeps a short in-memory rolling window of `dashboard-out`
+(target 60 s at 10 Hz ≈ 600 samples per signal) and ships it to each client on
+connect, so a chart is populated the moment it renders. Live samples stream in after.
+No lakehouse read and no topic replay in Phase 2 — revisit only if someone needs
+history older than the window.
+
 ## 8. Open questions — resolve before building, do not guess
 
-1. **Dashboard layout persistence** — where does the user's grid config live? DCM,
-   browser storage, or a dedicated topic?
-3. **Chart history depth** — dashboard subscribes live at 10 Hz. How much backlog on
-   page load, and from where (topic replay vs. lakehouse)?
+*None open. All Phase 1 and Phase 2 design questions are resolved in §7.*
 
 ## 9. Working agreements
 
