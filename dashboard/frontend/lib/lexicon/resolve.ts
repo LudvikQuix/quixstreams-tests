@@ -25,7 +25,8 @@ export function isControl(type: ElementType): boolean {
 
 export function allowedDatatypes(type: ElementType): Datatype[] {
   if (type === "switch") return ["bool", "enum"]
-  if (type === "knob" || type === "typein") return NUMERIC
+  if (type === "knob") return ALL // rotary for bool/enum, slider for numeric
+  if (type === "typein") return NUMERIC
   if (type === "chart") return NUMERIC
   return ALL
 }

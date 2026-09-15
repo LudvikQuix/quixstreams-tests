@@ -10,6 +10,8 @@
  */
 
 import dynamic from "next/dynamic"
+import { useTheme } from "next-themes"
+import { Moon, Sun } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -47,6 +49,8 @@ function Shell(): JSX.Element {
     saveLayout,
   } = useDashboard()
   const { store } = useTelemetryVersion()
+  const { resolvedTheme, setTheme } = useTheme()
+  const isDark = resolvedTheme === "dark"
 
   // No lexicon is an empty state, not a dead page: the service is running, it
   // retries by itself, and one seed or one DCM write fills this in without a
@@ -75,6 +79,15 @@ function Shell(): JSX.Element {
         {store.dropped > 0 ? <Badge variant="outline">lagging ({store.dropped})</Badge> : null}
 
         <Separator orientation="vertical" className="hidden h-6 sm:block" />
+
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          onClick={() => setTheme(isDark ? "light" : "dark")}
+        >
+          {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </Button>
 
         {editMode ? (
           <>

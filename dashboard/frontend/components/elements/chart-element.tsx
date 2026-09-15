@@ -12,6 +12,7 @@
 
 import { useEffect, useRef } from "react"
 import uPlot from "uplot"
+import { useTheme } from "next-themes"
 
 import { useDashboard } from "@/lib/store/dashboard-context"
 import { onAnimationFrame } from "@/lib/store/raf"
@@ -25,8 +26,15 @@ interface ChartElementProps {
 
 const PALETTE = ["#38bdf8", "#f97316", "#a78bfa", "#34d399", "#f472b6", "#facc15"]
 
+/** Read a CSS custom property and wrap it as an hsl() colour string. */
+function cssVar(name: string): string {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return `hsl(${raw})`
+}
+
 export function ChartElement({ series, options }: ChartElementProps): JSX.Element {
   const { store } = useDashboard()
+  const { resolvedTheme } = useTheme()
   const hostRef = useRef<HTMLDivElement | null>(null)
   const namesKey = series.map((entry) => entry.name).join(",")
 
@@ -36,6 +44,9 @@ export function ChartElement({ series, options }: ChartElementProps): JSX.Elemen
 
     const hintMin = options.y_min ?? series[0]?.descriptor.min ?? null
     const hintMax = options.y_max ?? series[0]?.descriptor.max ?? null
+
+    const axisStroke = cssVar("--muted-foreground")
+    const gridStroke = cssVar("--border")
 
     const plot = new uPlot(
       {
@@ -59,7 +70,19 @@ export function ChartElement({ series, options }: ChartElementProps): JSX.Elemen
                   ] as [number, number],
               },
         },
-        axes: [{}, { label: series[0]?.descriptor.unit ?? undefined }],
+        axes: [
+          {
+            stroke: axisStroke,
+            ticks: { stroke: gridStroke, width: 1 },
+            grid: { stroke: gridStroke, width: 1 },
+          },
+          {
+            label: series[0]?.descriptor.unit ?? undefined,
+            stroke: axisStroke,
+            ticks: { stroke: gridStroke, width: 1 },
+            grid: { stroke: gridStroke, width: 1 },
+          },
+        ],
         series: [
           {},
           ...series.map((entry, index) => ({
@@ -104,10 +127,12 @@ export function ChartElement({ series, options }: ChartElementProps): JSX.Elemen
       observer.disconnect()
       plot.destroy()
     }
-    // Rebuilt when the bound series or the visual options change; `series` is a
-    // fresh array each render, so the name list is the real dependency.
+    // Rebuilt when the bound series, the visual options, or the theme changes.
+    // `series` is a fresh array each render, so the name list is the real
+    // dependency. `resolvedTheme` triggers a full rebuild so axis and grid
+    // colours are re-read from the current CSS variables.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [namesKey, options.y_autoscale, options.y_min, options.y_max, options.stroke, store])
+  }, [namesKey, options.y_autoscale, options.y_min, options.y_max, options.stroke, store, resolvedTheme])
 
   return <div ref={hostRef} className="h-full w-full min-h-0" />
 }

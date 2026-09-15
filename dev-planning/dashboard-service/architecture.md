@@ -127,7 +127,7 @@ around the ~500-line ceiling in CLAUDE.md §9.
 
 | File | Responsibility |
 |---|---|
-| `app/page.tsx` | The single route. Header (model label, connection/stale/lagging badges, Edit toggle, add-element buttons, Save) + the dynamically imported grid, and the `NoLexicon` empty state that replaces all of it when there is no lexicon |
+| `app/page.tsx` | The single route. Header (model label, connection/stale/lagging badges, dark-mode toggle, Edit toggle, add-element buttons, Save) + the dynamically imported grid, and the `NoLexicon` empty state |
 | `app/layout.tsx` | Theme provider, toaster, the three vendor stylesheets |
 | `lib/store/dashboard-context.tsx` | Wires lexicon + socket + layout; owns the write path, the subscription set, and the single lexicon load path (`loadToken`) that the retry button, the 10 s auto-retry and a `lexicon` frame all drive |
 | `lib/store/telemetry.ts` | Latest values, per-signal history, `applied` cache, pending/confirmed/rejected bookkeeping |
@@ -140,8 +140,11 @@ around the ~500-line ceiling in CLAUDE.md §9.
 | `lib/types/layout.ts` | The D5 document types, defaults, and the chart multi-binding helpers |
 | `components/grid/grid-canvas.tsx` | `Responsive` + `WidthProvider`, edit-mode gating, lg-only persistence |
 | `components/grid/element-frame.tsx` | Title, state badge, bind/remove affordances |
-| `components/elements/{readout,chart,knob}-element.tsx` | The three M1 element bodies |
-| `components/elements/element-view.tsx` | Resolves bindings, picks the render state, dispatches |
+| `components/elements/readout-element.tsx` | Numeric / enum readout; dims on stale signal |
+| `components/elements/chart-element.tsx` | uPlot line chart; themes axis and grid colours from CSS variables on every render |
+| `components/elements/knob-element.tsx` | Slider control for numeric datatypes (uint/int/float): Radix slider with trailing throttle |
+| `components/elements/rotary-element.tsx` | Rotary detent knob for bool/enum: SVG dial, drag + keyboard (arrows/Home/End) + direct-tap buttons; one detent per lexicon enum member |
+| `components/elements/element-view.tsx` | Resolves bindings, picks the render state; for type `knob` dispatches `RotaryElement` (bool/enum) or `KnobElement` (numeric) based on the descriptor's datatype |
 | `components/binding/binding-picker.tsx` | Dialog + Command over the filtered candidate list |
 | `components/ui/*` | Copied verbatim from TestManager (D4), plus a new `slider.tsx` |
 

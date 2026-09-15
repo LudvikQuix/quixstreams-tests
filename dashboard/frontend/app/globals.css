@@ -158,6 +158,18 @@
 }
 
 /* ================================================================
+   UPLOT THEMING
+   uPlot renders axes and grid lines imperatively via JS options; only
+   the legend needs a CSS override because its text inherits from the
+   DOM rather than from the canvas draw call.
+   ================================================================ */
+
+.u-legend {
+  color: hsl(var(--foreground));
+  font-size: 12px;
+}
+
+/* ================================================================
    DESIGN VARIANTS
    Applied via data-variant on <html>. "common" (no attribute) is
    the original layout, unchanged.

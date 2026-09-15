@@ -15,6 +15,7 @@ import { BindingPicker } from "@/components/binding/binding-picker"
 import { ChartElement } from "@/components/elements/chart-element"
 import { KnobElement } from "@/components/elements/knob-element"
 import { ReadoutElement } from "@/components/elements/readout-element"
+import { RotaryElement } from "@/components/elements/rotary-element"
 import { ElementFrame, type ElementState } from "@/components/grid/element-frame"
 import { isCompatible, resolve } from "@/lib/lexicon/resolve"
 import type { Descriptor } from "@/lib/lexicon/types"
@@ -123,6 +124,14 @@ function Body({
     return <ChartElement series={series} options={element.options as ChartOptions} />
   }
   if (element.type === "knob") {
+    if (descriptor.datatype === "bool" || descriptor.datatype === "enum") {
+      return (
+        <RotaryElement
+          binding={resolved[0].binding}
+          descriptor={descriptor}
+        />
+      )
+    }
     return (
       <KnobElement
         binding={resolved[0].binding}
