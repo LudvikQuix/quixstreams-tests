@@ -163,15 +163,33 @@ box. The code drifted from its spec; **the README is the intent**. `main.py`,
 
 `R0` stays `0.0` — README agrees, and non-zero `R0` engages the quadratic solver.
 
+### D3 — The dashboard reads the lexicon from DCM's REST API (2026-09-15)
+
+Resolves the former OQ-1. The dashboard backend fetches
+`GET /api/v1/configurations/{id}/content` at boot and on demand, then serves the
+lexicon to its own frontend. It does **not** use `join_lookup` /
+`QuixConfigurationService`: that resolves config per record by message key, which
+fits an enricher, not an element picker that needs a plain request/response read.
+No RocksDB round-trip either — the lexicon is small, read-mostly, and already
+durable in DCM, so the `quix-rocksdb-state-api` pattern buys nothing here.
+
+`dc-battery-sim` keeps reading its own `lexicon.json` from disk; it never calls DCM.
+
+### D4 — The dashboard frontend reuses TestManager's stack (2026-09-15)
+
+Reference implementation: `C:\repos\TestManager\Quix.TestManager\frontend`.
+Next.js 14 (App Router) + React 18 + TypeScript, shadcn/ui over Radix primitives,
+Tailwind, TanStack Table, Playwright for e2e. Reuse its `components/ui` primitives
+and `components/layout` patterns rather than re-deriving them; its `app/config-manager`
+route is the closest existing analogue to a lexicon editor.
+
+Satisfies the global rule against hand-rolled breakpoints. Two additions Phase 2 needs
+that TestManager does not have: a grid layout engine (`react-grid-layout`) and a
+streaming-capable chart library — prefer `uPlot` over Recharts at 10 Hz.
+
 ## 8. Open questions — resolve before building, do not guess
 
-1. **How does the dashboard read the lexicon?** DCM's streaming primitive is
-   `sdf.join_lookup()` + `QuixConfigurationService` (see the `quix-dcm-join-lookup`
-   skill), which resolves config *per record by message key* — a pipeline idiom. The
-   element picker needs a request/response read instead. Options: read DCM's REST API
-   directly (`GET /api/v1/configurations/{id}/content`), or consume the config topic
-   into local state and serve it over HTTP (`quix-rocksdb-state-api` pattern).
-2. **Dashboard layout persistence** — where does the user's grid config live? DCM,
+1. **Dashboard layout persistence** — where does the user's grid config live? DCM,
    browser storage, or a dedicated topic?
 3. **Chart history depth** — dashboard subscribes live at 10 Hz. How much backlog on
    page load, and from where (topic replay vs. lakehouse)?
