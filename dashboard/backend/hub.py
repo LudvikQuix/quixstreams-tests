@@ -24,7 +24,7 @@ from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from .lexicon import LexiconCache
+from .lexicon import LexiconCache, LexiconError
 from .settings import Settings
 from .window import RollingWindow
 
@@ -182,9 +182,16 @@ class Hub:
             conn.paused = False
             conn.enqueue(self._snapshot_message(conn), droppable=False)
         elif kind == "write":
-            errors = self._submit_write(
-                _as_dict(message.get("signals")), _as_dict(message.get("parameters"))
-            )
+            try:
+                errors = self._submit_write(
+                    _as_dict(message.get("signals")),
+                    _as_dict(message.get("parameters")),
+                )
+            except LexiconError as exc:
+                # Deliberate catch: without a lexicon there is nothing to
+                # validate a write against, and an uncaught raise here would
+                # kill an otherwise healthy socket instead of answering it.
+                errors = [str(exc)]
             if errors:
                 conn.enqueue(
                     {"t": "write_error", "seq": message.get("seq"), "errors": errors},

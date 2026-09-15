@@ -1,14 +1,13 @@
 /**
  * The D5 layout document.
  *
- * Normative schema: dev-planning/dashboard-service/layout-schema.json.
+ * Normative schema: dev-planning/dashboard-service/layout-schema.json, at 1.1.
  *
- * One deliberate extension over schema 1.0: a chart carries `bindings: []`,
- * because CLAUDE.md §4 (as amended by D7) says a chart takes 1..N bindings while
- * schema 1.0 only models one. `binding` is kept as the singular alias and always
- * mirrors `bindings[0]`, so a 1.0 reader still sees a valid single-series chart
- * and a 1.0 document still loads here unchanged. Documents written by this build
- * therefore declare layout_version "1.1". See dev-planning open-points OP-1.
+ * A chart carries `bindings: []` because CLAUDE.md §4 (as amended by D7) says a
+ * chart takes 1..N bindings. `binding` is kept as the singular alias and always
+ * mirrors `bindings[0]`, so a consumer that only knows schema 1.0 still sees a
+ * valid single-series chart. Schema 1.1 is additive over 1.0, so a stored 1.0
+ * document loads here unchanged; documents written by this build declare "1.1".
  */
 
 import type { Collection, Direction } from "@/lib/lexicon/types"

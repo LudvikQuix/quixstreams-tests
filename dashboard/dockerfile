@@ -4,11 +4,11 @@
 
 FROM node:20-bookworm-slim AS webbuild
 WORKDIR /web
-# package-lock.json is optional here on purpose: no lockfile is committed yet, so
-# `npm ci` would fail the build. Commit one and switch this to `npm ci` for a
-# reproducible frontend build.
-COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm install --no-audit --no-fund
+# `npm ci` installs exactly what package-lock.json pins, so an upstream release
+# cannot silently change what the image ships. It requires the lockfile, so the
+# COPY is no longer optional - the build fails loudly if it is missing.
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build

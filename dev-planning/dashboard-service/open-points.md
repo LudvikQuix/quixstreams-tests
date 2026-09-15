@@ -5,7 +5,7 @@ before M2 closes it.
 
 ---
 
-## OP-1 — `layout-schema.json` is at 1.0 and cannot express a multi-series chart
+## OP-1 — `layout-schema.json` is at 1.0 and cannot express a multi-series chart — **CLOSED 2026-09-15**
 
 **Root cause layer:** `spec`
 
@@ -33,6 +33,12 @@ against the committed 1.0 schema** — which matters the moment M2 turns on serv
 validation at `PUT /api/layouts/{id}`, because that validation would reject every chart the
 user built in M1.
 
+**Resolution (fix round 1).** Done by ArchDev rather than Buddy, on the instruction that came
+with Tester's Bug 1.3. `layout-schema.json` is now `dashboard-layout/1.1.json` with an optional,
+chart-only `bindings` array; `example-layout.json` declares `1.1` and carries a real two-series
+chart (`ocv_v` + `dc_voltage_v`). The bump is additive, so every 1.0 document still validates.
+See architecture.md §5.4 and §11.
+
 ---
 
 ## OP-2 — task 0 cannot be completed without a push
@@ -52,7 +58,7 @@ fails, the SSE fallback must be taken **before** anything else is added to the h
 
 ---
 
-## OP-3 — no `package-lock.json`, so the image build uses `npm install`
+## OP-3 — no `package-lock.json`, so the image build uses `npm install` — **CLOSED 2026-09-15**
 
 **Root cause layer:** `code`
 
@@ -63,3 +69,8 @@ therefore uses `npm install` and says so in a comment.
 **What is needed.** One `npm install` in `dashboard/frontend/`, commit the resulting
 `package-lock.json`, and switch the dockerfile line back to `npm ci`. Until then an unrelated
 upstream release can silently change what the image ships.
+
+**Resolution (fix round 1).** Tester ran `npm install` during verification; the resulting
+`dashboard/frontend/package-lock.json` (lockfileVersion 3) is staged, and `dashboard/dockerfile`
+is back on `npm ci` with a non-optional `COPY` of the lockfile. The two must be committed
+together or the image build fails outright.

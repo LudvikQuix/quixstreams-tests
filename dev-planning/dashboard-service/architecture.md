@@ -259,6 +259,19 @@ stored once in the 12-column `lg` space and only written back while the viewport
 at `lg` — narrower breakpoints are derived by `react-grid-layout` at render time and never
 persisted.
 
+The normative schema is `dev-planning/dashboard-service/layout-schema.json`, at **1.1** since
+fix round 1. 1.1 adds exactly one optional, chart-only key — `bindings`, an array of the same
+`binding` object — so a chart can carry the 1..N series D7 requires. Because the key is
+optional and nothing was removed or tightened, **every 1.0 document validates against 1.1
+unchanged**; the bump is additive, not breaking. The writer's obligation, which JSON Schema
+cannot express, is that `binding` always equals `bindings[0]`, so a consumer that only knows
+1.0 still reads a valid single-series chart out of a 1.1 document. `withBindings()` in
+`frontend/lib/types/layout.ts:122` is the only place that maintains that invariant. On a
+non-chart element it sets `bindings` to `undefined`, which `JSON.stringify` then omits, so the
+persisted document carries no `bindings` key at all and the schema's chart-only rule holds. A
+storage layer that ever serialised `undefined` as `null` would break that — the one thing to
+re-check when M2 repoints `LayoutStorage` at `/api/layouts`.
+
 ---
 
 ## 6. Decisions worth knowing in six months
@@ -272,10 +285,14 @@ persisted.
    the window with stale samples and, worse, apply an old `applied` block as current control
    state.
 3. **Shape checks are filters, never `try`/`except` inside a step.** An exception inside
-   `sdf.update` takes down `consumer_app.run()` and the whole service. The only two `except`
-   blocks in backend code are on the lexicon refresh (must not drop a good snapshot) and on
-   JSON parsing of a browser frame (one malformed frame must not kill a healthy connection);
-   both carry a comment naming what they catch.
+   `sdf.update` takes down `consumer_app.run()` and the whole service, so the QuixStreams
+   pipeline in `main.py` holds no `try` at all: a malformed message is filtered out, never
+   caught. Outside the pipeline every `except` is deliberate and carries a comment naming what
+   it catches and why swallowing it is right — the lexicon refresh (must not drop a good
+   snapshot), JSON parsing of a browser frame (one malformed frame must not kill a healthy
+   connection), and the two `LexiconError` guards on the write paths added in fix round 1
+   (`api.py` answers 503, `hub.py` answers `write_error`), so an unloaded lexicon cannot become
+   a bare 500 or a killed socket.
 4. **Per-request write rejection, not per-field.** The plant is field-granular and stays that
    way. At the dashboard boundary an all-or-nothing rejection is what lets the UI tell the user
    *which* field was refused; a partially-forwarded write with no ack channel cannot.
@@ -292,12 +309,12 @@ persisted.
 
 | # | Spec said | Built | Why |
 |---|---|---|---|
-| D-1 | Chart binds exactly one entry (`binding`); OQ-1 left open | Chart binds 1..N via an additive `bindings: []`, with `binding` kept as the singular alias mirroring `bindings[0]`; documents declare `layout_version "1.1"` | CLAUDE.md §4 **as amended by D7** says a chart takes 1..N, and the brief makes D1–D7 binding. The spec's OQ-1 quotes the pre-D7 §4. This is exactly OQ-1's own recommended seam. A v1.0 document still loads unchanged. **`layout-schema.json` needs the matching 1.1 bump — open point OP-1.** |
+| D-1 | Chart binds exactly one entry (`binding`); OQ-1 left open | Chart binds 1..N via an additive `bindings: []`, with `binding` kept as the singular alias mirroring `bindings[0]`; documents declare `layout_version "1.1"` | CLAUDE.md §4 **as amended by D7** says a chart takes 1..N, and the brief makes D1–D7 binding. The spec's OQ-1 quotes the pre-D7 §4. This is exactly OQ-1's own recommended seam. A v1.0 document still loads unchanged. **Closed in fix round 1: `layout-schema.json` is now `dashboard-layout/1.1.json` and models `bindings` — see §11.** |
 | D-2 | `main.py ~120` holds env | `backend/settings.py` holds one frozen `Settings.from_env()`, called from `main.py` | Five modules need the values; threading them through constructors from `main.py` would be worse than one dataclass. Still exactly one place that reads `os.environ` |
 | D-3 | Fall back to the payload timestamp field when the broker timestamp is absent | Falls back to the wall clock | Naming a payload timestamp field would reintroduce the model-agnosticism leak the broker timestamp was chosen to close. There is no plant-agnostic name to fall back to |
 | D-4 | Server verbs: snapshot, frames, applied, lexicon, status, ping | Adds `write_error {seq, errors}` | A rejected WS write otherwise has no reply at all, and `seq` exists for correlation. Ten lines; prevents a silent failure on the adversarial path |
 | D-5 | `GET /api/lexicon`, `/api/snapshot`, … | Adds `GET /api/config` | The client needs `applied_timeout_ms` (and `history_seconds` before its first snapshot). The alternative was hardcoding a backend default in the browser |
-| D-6 | `python:3.13-slim-bookworm`, `npm ci`, `jsonschema` pinned | `python:3.12.5-slim-bookworm`, `npm install`, no `jsonschema` | 3.12.5 is the base image this repo already builds quixstreams against (`dc-battery-sim/dockerfile`). `npm ci` needs a committed `package-lock.json`, which does not exist yet — see the checklist. `jsonschema` is only needed for M2's layout-save validation |
+| D-6 | `python:3.13-slim-bookworm`, `npm ci`, `jsonschema` pinned | `python:3.12.5-slim-bookworm`, `npm ci`, no `jsonschema` | 3.12.5 is the base image this repo already builds quixstreams against (`dc-battery-sim/dockerfile`). The `npm install` deviation is closed in fix round 1: Tester generated `dashboard/frontend/package-lock.json` (lockfileVersion 3, 458 packages), it is now staged, and the dockerfile is back on `npm ci`. `jsonschema` is only needed for M2's layout-save validation |
 | D-7 | `LAYOUT_TYPE` declared in `app.yaml` | Omitted | M1 has no DCM layout CRUD, so no code reads it. A declared variable nothing reads is dead config; M2 adds it with the layout store |
 | D-8 | Root `quix.yaml` does not exist yet; this spec creates it | It already exists; one deployment block was appended by hand | The file was created by earlier Phase-1 work. Matches the file's existing `resources.limits` style rather than the spec snippet's flat form, for consistency with its neighbours |
 
@@ -346,8 +363,8 @@ The dashboard fails loudly at boot if this has not happened, which is the intend
 
 | Command | Scope | Notes |
 |---|---|---|
-| `pre-commit run --all-files` | whole repo, pinned ruff `v0.6.3` | New Python: `dashboard/main.py`, `dashboard/backend/*.py`. `ruff-format` will be the noisy one — the code was written to Black/ruff-format shape by hand and never formatted by the tool |
-| `npm install && npm run lint` in `dashboard/frontend` | new TypeScript | `next lint` with `next/core-web-vitals`. Expect the `react-hooks/exhaustive-deps` disables in `dashboard-context.tsx`, `chart-element.tsx`, `knob-element.tsx`, `element-view.tsx` — each is commented with why |
+| `pre-commit run --all-files` | whole repo, pinned ruff `v0.6.3` | New Python: `dashboard/main.py`, `dashboard/backend/*.py`. Formatted by the `ruff-format` hook in fix round 1; it should now be a no-op |
+| `npm ci && npm run lint` in `dashboard/frontend` | new TypeScript | `next lint` with `next/core-web-vitals`. Expect the `react-hooks/exhaustive-deps` disables in `dashboard-context.tsx`, `chart-element.tsx`, `knob-element.tsx`, `element-view.tsx` — each is commented with why |
 | `npm run type-check` in `dashboard/frontend` | `tsc --noEmit` | Highest-value frontend check. The uPlot scale-range callback and the `react-grid-layout` `compactType` prop are the two typings most likely to argue |
 | `docker build dashboard/` | the image | Proves the two-stage build and the static export; also the first thing the platform will do |
 
@@ -358,9 +375,9 @@ The dashboard fails loudly at boot if this has not happened, which is the intend
 | `backend/settings.py` | Missing `telemetry_in` / `control_out` / `PLANT_KEY` / `CONFIG_API_URL` / `LEXICON_TARGET_KEY` raises `KeyError` at import — not a silent default |
 | `backend/lexicon.py` | `config_id("sil-lexicon", "dc-battery-sim")` equals the id the seeding curl used; `validate_document` rejects major ≠ 1 and each of the six load rules (the code says "load rule 1..6" rather than "R1..R6", deliberately: `R0`/`R1`/`R2` are also battery parameter names and would trip the model-agnosticism grep in 10.3); a second `fetch()` with unchanged content does **not** bump `rev` |
 | `backend/window.py` | Appending past `HISTORY_SECONDS` evicts from the left; past `HISTORY_MAX_SAMPLES` hard-caps; `snapshot(names, s)` returns equal-length `ts` and every `series` column, with `null` for a missing name |
-| `backend/hub.py` | Queue overflow drops the **oldest `frames`** and increments `dropped`; `applied`/`lexicon`/`status` are never dropped; `hello` and `resume` both answer with a snapshot; `pause` stops frames but not `applied` |
+| `backend/hub.py` | Queue overflow drops the **oldest `frames`** and increments `dropped`; `applied`/`lexicon`/`status` are never dropped; `hello` and `resume` both answer with a snapshot; `pause` stops frames but not `applied`; a `write` frame arriving before the lexicon has loaded answers `write_error` instead of killing the socket |
 | `backend/writer.py` | `coerce` rejects `True` for a numeric field, rejects `0.5` for an int, accepts an int for a float and stores `float`, canonicalises an enum to the member's `value`, and **blocks** rather than clamps out-of-range; `validate` rejects `SAMPLE_TIME`/`Q_MAX_AH` (D1); two writes inside `WRITE_COALESCE_MS` produce **one** message |
-| `backend/api.py` | `/healthz` is 503 only without a lexicon and 200 with a stale plant; `/api/control` is 422 on a bad field and 202 otherwise; the static catch-all does not shadow `/api`, `/ws` or `/healthz` |
+| `backend/api.py` | `/healthz` is 503 only without a lexicon and 200 with a stale plant; `/api/control` is 422 on a bad field, 503 with a `detail` body when the lexicon has not loaded, and 202 otherwise; the static catch-all does not shadow `/api`, `/ws` or `/healthz` |
 | `frontend/lib/lexicon/resolve.ts` | `candidates()` never returns a `tunable: false` parameter for `switch`/`knob`/`typein`, and does return it for `readout` |
 | `frontend/lib/store/telemetry.ts` | An echo inside `SETTLE_MS` of a write neither confirms nor rejects it; one outside it with a different value fires the reject handler once |
 
@@ -398,7 +415,28 @@ The dashboard fails loudly at boot if this has not happened, which is the intend
 | `backend/hub.py` | §6.4 |
 | `backend/writer.py` | §6.8, Phase 1 §6.3, §6.7 |
 | `backend/api.py` | §6.11 route table |
-| `frontend/lib/lexicon/*` | §6.6, §6.7, D1 |
-| `frontend/components/elements/*` | §6.6 (readout, chart, knob only in M1) |
-| `frontend/lib/store/layout.ts` | §6.5, D5 (localStorage adapter, D5 document) |
-| `quix.yaml` + `app.yaml` | §6.11 |
+
+---
+
+## 11. Fix round 1 (2026-09-15) — Tester's Round-1 bug log
+
+Source: `dev-planning/dashboard-service/bugs/dashboard-service.md`, Round 1.
+Nothing below changes the topology, the thread model or any wire format.
+
+| Bug | Layer | Verdict | What changed |
+|---|---|---|---|
+| 1.1 — `F841` on `last` in `load_at_boot` | code | **fixed** | `backend/lexicon.py:294-308`. `last` was genuinely dead, not a missing raise: `load_at_boot`'s `while True` has no `break`, so the loop can only leave through `return self.fetch()` or through `raise LexiconError(...) from exc` on the deadline branch, and at that raise `exc` **is** the last exception. There is no fall-through path for `last` to have served. Both the annotation line and the assignment were deleted; the raise and its `from exc` chain are untouched |
+| 1.2 — `ruff-format` reformats `lexicon.py` | code | **fixed** | `backend/lexicon.py`, four `_problem(...)` calls in `_validate_range`/`_validate_default` wrapped onto three lines each. Behaviour-identical; it is the formatter's own output, kept as the hook produced it |
+| 1.3 / OP-1 — schema 1.0 rejects `bindings` | spec | **fixed** | `layout-schema.json` → `dashboard-layout/1.1.json`; see §5.4. `example-layout.json` now declares `1.1` and its `el-voltage-chart` overlays `ocv_v` and `dc_voltage_v` (both unit `V`), with `stroke: null` so the palette gives each trace its own colour — a non-null `stroke` is applied to every series by `chart-element.tsx:67`, which would draw both traces identically. `el-temp-chart` stays single-binding on purpose, so one document exercises both shapes |
+| 1.4 — `POST /api/control` 500s with no lexicon | code | **fixed** | `backend/api.py:110-121`. `writer.submit()` is wrapped in `except LexiconError` returning **503** with a `detail` body, matching `GET /api/lexicon:85` rather than `refresh_lexicon`'s 502 — the failure is "not loaded yet", not "DCM refused" |
+| (not filed) — the same hole on the WebSocket `write` frame | code | **fixed** | `backend/hub.py:184-194`. `_on_client_message` called `self._submit_write()` unguarded, so the identical `LexiconError` would have escaped `_on_client_message` → `serve()`, which catches only `WebSocketDisconnect` and `RuntimeError`, and killed a healthy socket with a traceback. Now caught and returned through the existing `write_error` verb (D-4), so both write entry points fail the same way |
+
+Also closed: **OP-3**. `dashboard/frontend/package-lock.json` (lockfileVersion 3) is staged and
+`dashboard/dockerfile:10-11` is back on `npm ci`. The lockfile and the dockerfile change must
+land in the same commit — `npm ci` without a committed lockfile fails the image build outright.
+
+Unreachability, stated plainly: `main.py` calls `lexicon.load_at_boot()` before it starts the
+HTTP thread, and that call either returns a snapshot or kills the process, so neither 1.4 nor
+its WebSocket twin is reachable through the normal boot path today. Both are fixed because
+M2's config-topic invalidation is the change that makes "lexicon momentarily absent" a real
+state, and a guard added then would be a guard added after the incident.

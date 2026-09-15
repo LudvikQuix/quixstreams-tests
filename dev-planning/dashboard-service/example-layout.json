@@ -1,8 +1,8 @@
 {
-  "layout_version": "1.0",
+  "layout_version": "1.1",
   "layout_id": "battery-bring-up",
   "name": "Battery bring-up",
-  "description": "Drive the pack with a power setpoint and the chiller, tune the ambient heat-exchange coefficient, and watch SOC, current, temperature and terminal voltage. Every binding resolves against dc-battery-sim/lexicon.json.",
+  "description": "Drive the pack with a power setpoint and the chiller, tune the ambient heat-exchange coefficient, and watch SOC, current, temperature and terminal voltage. The voltage chart overlays two output signals that share the unit V, which is what the 1.1 `bindings` array exists for; the temperature chart stays single-binding, so one document shows both shapes. Every binding resolves against dc-battery-sim/lexicon.json.",
   "model": {
     "name": "dc-battery-sim",
     "lexicon_version": "1.0"
@@ -127,19 +127,31 @@
     {
       "id": "el-voltage-chart",
       "type": "chart",
-      "title": null,
+      "title": "Terminal vs open-circuit voltage",
       "binding": {
         "collection": "signals",
-        "name": "dc_voltage_v",
+        "name": "ocv_v",
         "direction": "output"
       },
+      "bindings": [
+        {
+          "collection": "signals",
+          "name": "ocv_v",
+          "direction": "output"
+        },
+        {
+          "collection": "signals",
+          "name": "dc_voltage_v",
+          "direction": "output"
+        }
+      ],
       "position": { "x": 0, "y": 5, "w": 6, "h": 4, "min_w": 4, "min_h": 3 },
       "options": {
         "window_s": 60.0,
         "y_min": null,
         "y_max": null,
         "y_autoscale": true,
-        "stroke": "#38bdf8",
+        "stroke": null,
         "fill": false,
         "points": false,
         "stale_after_ms": 2000

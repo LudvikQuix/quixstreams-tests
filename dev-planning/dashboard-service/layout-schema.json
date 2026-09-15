@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://quix.io/schemas/dashboard-layout/1.0.json",
+  "$id": "https://quix.io/schemas/dashboard-layout/1.1.json",
   "title": "SIL dashboard grid layout",
-  "description": "One user-built dashboard grid. Persisted in DCM (D5) as configuration type 'dashboard-layout', target_key = layout_id, category = the plant model name. Element positions are stored in the 12-column 'lg' coordinate space only; narrower breakpoints are derived at render time by react-grid-layout and are never persisted.",
+  "description": "One user-built dashboard grid. Persisted in DCM (D5) as configuration type 'dashboard-layout', target_key = layout_id, category = the plant model name. Element positions are stored in the 12-column 'lg' coordinate space only; narrower breakpoints are derived at render time by react-grid-layout and are never persisted. Version 1.1 adds one optional, chart-only key (`bindings`) so a chart can hold 1..N series per D7; it is additive, so 1.0 documents validate against it unchanged.",
   "type": "object",
   "required": [
     "layout_version",
@@ -18,7 +18,7 @@
     "layout_version": {
       "type": "string",
       "pattern": "^\\d+\\.\\d+$",
-      "description": "Schema version of this document shape. The dashboard refuses an unknown MAJOR and renders the layout read-only."
+      "description": "Schema version of this document shape. The dashboard refuses an unknown MAJOR and renders the layout read-only. 1.1 is additive over 1.0 — every 1.0 document still validates here unchanged, because the only new key (`bindings`) is optional. A writer that emits `bindings` declares \"1.1\"."
     },
     "layout_id": {
       "type": "string",
@@ -82,7 +82,7 @@
         "cols": {
           "type": "integer",
           "const": 12,
-          "description": "Fixed at 12 for v1.0. Element x/w are in this coordinate space at every breakpoint; react-grid-layout reflows for narrower screens."
+          "description": "Fixed at 12 for every 1.x document. Element x/w are in this coordinate space at every breakpoint; react-grid-layout reflows for narrower screens."
         },
         "row_height": { "type": "integer", "minimum": 20, "maximum": 200 },
         "margin": {
@@ -264,7 +264,7 @@
         "stroke": {
           "type": ["string", "null"],
           "pattern": "^#[0-9a-fA-F]{6}$",
-          "description": "Null = the theme's next series colour."
+          "description": "Null = the theme palette assigns a distinct colour per series. A non-null value is applied to EVERY series of the chart, so leave it null on a multi-binding chart or all traces render in one colour."
         },
         "fill": { "type": "boolean" },
         "points": { "type": "boolean" },
@@ -289,7 +289,12 @@
         },
         "binding": {
           "anyOf": [{ "$ref": "#/$defs/binding" }, { "type": "null" }],
-          "description": "Null = a placed but unbound element. A binding that no longer resolves against the lexicon is NOT rewritten to null; it is kept and rendered in the unbound state so a lexicon regression cannot destroy a layout."
+          "description": "The singular binding. Null = a placed but unbound element. A binding that no longer resolves against the lexicon is NOT rewritten to null; it is kept and rendered in the unbound state so a lexicon regression cannot destroy a layout. On a chart that also carries `bindings`, this MUST mirror `bindings[0]` — see that property."
+        },
+        "bindings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/binding" },
+          "description": "Added in 1.1 to satisfy D7: a chart takes 1..N series, because overlaying ocv_v against dc_voltage_v is the point of a chart. Permitted on `type: \"chart\"` only, and optional even there — an absent `bindings` means the element is single-series and `binding` alone decides it, which is exactly the shape of a 1.0 document. When present, the writer MUST keep `binding` equal to `bindings[0]` so a 1.0 reader still sees a valid single-series chart; JSON Schema cannot express that cross-property equality, so it is a writer obligation, not a validated one. An empty array is legal and means a placed but unbound chart, matching `binding: null`."
         },
         "position": { "$ref": "#/$defs/position" },
         "options": { "type": "object" }
@@ -314,6 +319,11 @@
         {
           "if": { "properties": { "type": { "const": "chart" } }, "required": ["type"] },
           "then": { "properties": { "options": { "$ref": "#/$defs/chartOptions" } } }
+        },
+        {
+          "$comment": "1.1: `bindings` is chart-only. No `then` branch — a chart is simply unconstrained here; every other type must not carry the key at all.",
+          "if": { "properties": { "type": { "const": "chart" } }, "required": ["type"] },
+          "else": { "not": { "required": ["bindings"] } }
         }
       ]
     }

@@ -89,21 +89,29 @@ def _validate_range(entry: dict[str, Any], problems: list[str]) -> None:
     datatype = entry["datatype"]
     if datatype == "enum":
         if not isinstance(entry["enum"], list) or not entry["enum"]:
-            _problem(problems, entry, "load rule 1: enum datatype needs a non-empty enum")
+            _problem(
+                problems, entry, "load rule 1: enum datatype needs a non-empty enum"
+            )
         if entry["min"] is not None or entry["max"] is not None:
-            _problem(problems, entry, "load rule 1: enum datatype must have null min/max")
+            _problem(
+                problems, entry, "load rule 1: enum datatype must have null min/max"
+            )
         return
     if datatype in NUMERIC_TYPES:
         low, high = entry["min"], entry["max"]
         numeric = isinstance(low, (int, float)) and isinstance(high, (int, float))
         if not numeric:
-            _problem(problems, entry, "load rule 2: numeric datatype needs numeric min/max")
+            _problem(
+                problems, entry, "load rule 2: numeric datatype needs numeric min/max"
+            )
         elif low > high:
             _problem(problems, entry, "load rule 2: min > max")
         elif datatype == "uint" and low < 0:
             _problem(problems, entry, "load rule 5: uint min must be >= 0")
         if entry["enum"] is not None:
-            _problem(problems, entry, "load rule 2: numeric datatype must have null enum")
+            _problem(
+                problems, entry, "load rule 2: numeric datatype must have null enum"
+            )
         return
     if any(entry[key] is not None for key in ("min", "max", "enum")):
         _problem(problems, entry, "load rule 3: bool must have null min/max/enum")
@@ -116,7 +124,9 @@ def _validate_default(entry: dict[str, Any], problems: list[str]) -> None:
     if datatype == "enum" and isinstance(entry["enum"], list):
         members = [m.get("value") for m in entry["enum"] if isinstance(m, dict)]
         if default not in members:
-            _problem(problems, entry, "load rule 4: default is not an enum member value")
+            _problem(
+                problems, entry, "load rule 4: default is not an enum member value"
+            )
         return
     if datatype in NUMERIC_TYPES and isinstance(entry["min"], (int, float)):
         if isinstance(default, bool) or not isinstance(default, (int, float)):
@@ -285,12 +295,10 @@ class LexiconCache:
         """Retry with exponential backoff, then die so the platform restarts us."""
         deadline = time.monotonic() + self._settings.lexicon_boot_timeout_s
         delay = 1.0
-        last: Exception | None = None
         while True:
             try:
                 return self.fetch()
             except (LexiconError, httpx.HTTPError) as exc:
-                last = exc
                 if time.monotonic() + delay > deadline:
                     raise LexiconError(f"lexicon unavailable at boot: {exc}") from exc
                 logger.warning(

@@ -109,7 +109,13 @@ def create_app(
 
     @app.post("/api/control")
     def post_control(body: ControlBody) -> JSONResponse:
-        errors = writer.submit(body.signals, body.parameters)
+        try:
+            errors = writer.submit(body.signals, body.parameters)
+        except LexiconError as exc:
+            # Same 503-plus-detail shape as GET /api/lexicon: with no lexicon
+            # there is nothing to validate a write against. Unreachable while
+            # main.py loads the lexicon before it starts the HTTP thread.
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         if errors:
             return JSONResponse({"errors": errors}, status_code=422)
         return JSONResponse({"accepted": True}, status_code=202)
