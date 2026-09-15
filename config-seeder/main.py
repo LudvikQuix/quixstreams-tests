@@ -18,7 +18,9 @@ Two details are load-bearing:
   this Job exits non-zero rather than let the run proceed.
 
 The DCM's write path is a REST API with no Kafka interface, so plain HTTP POSTs here are
-the documented seeding route, not a workaround for a QuixStreams primitive.
+the documented seeding route, not a workaround for a QuixStreams primitive. Every request
+carries a bearer token: the DCM answers 403 to an unauthenticated call, in-cluster
+included, so the token is resolved and asserted before the delay rather than after it.
 """
 
 import hashlib
@@ -44,7 +46,6 @@ def _env(name: str, default: str) -> str:
 
 
 DCM_API_URL = _env("DCM_API_URL", "http://config-api-svc").rstrip("/")
-DCM_API_TOKEN = os.getenv("DCM_API_TOKEN", "").strip()
 SEED_DELAY_SECONDS = int(_env("SEED_DELAY_SECONDS", "120"))
 DEVICE_COUNT = int(_env("DEVICE_COUNT", "100"))
 SEEDED_DEVICE_COUNT = int(_env("SEEDED_DEVICE_COUNT", "50"))
@@ -58,13 +59,20 @@ def config_id(target_key: str) -> str:
     return hashlib.sha1(f"{CONFIG_TYPE}-{target_key}".encode()).hexdigest()
 
 
-def auth_headers() -> dict[str, str]:
-    """Bearer header, only when a token was supplied.
+def resolve_token() -> tuple[str, str]:
+    """Return (token, source-variable-name), or ("", "") when neither source has one.
 
-    In-cluster the DCM is reached over service DNS on port 80 and needs no token; the
-    variable exists as a fallback for the publicAccess URL.
+    The DCM authenticates every request, in-cluster DNS included: without a bearer header
+    it answers 403. `Quix__Sdk__Token` is auto-injected into every Quix deployment and is
+    the same credential QuixConfigurationService presents when it fetches per-version
+    content, so the normal path needs no configuration at all. `DCM_API_TOKEN` stays ahead
+    of it as the escape hatch for a DCM that wants a different token for the REST API.
     """
-    return {"Authorization": f"Bearer {DCM_API_TOKEN}"} if DCM_API_TOKEN else {}
+    for name in ("DCM_API_TOKEN", "Quix__Sdk__Token"):
+        token = os.getenv(name, "").strip()
+        if token:
+            return token, name
+    return "", ""
 
 
 def sleep_with_heartbeat(seconds: int) -> None:
@@ -85,7 +93,8 @@ def post_config(
     """Create or version one device configuration.
 
     `replace: true` creates OR adds a version, which is what makes re-running this Job
-    idempotent. PUT /configurations/{id} only updates and 404s on an unknown id.
+    idempotent. PUT /configurations/{id} only updates and 404s on an unknown id. The
+    session carries the Authorization header, so nothing is passed per request.
     """
     target_key = f"device-{index:03d}"
     body = {
@@ -107,7 +116,6 @@ def post_config(
     response = session.post(
         f"{DCM_API_URL}/api/v1/configurations",
         json=body,
-        headers=auth_headers(),
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
@@ -120,7 +128,6 @@ def read_back(session: requests.Session, index: int) -> tuple[str, int, str | No
     identifier = config_id(target_key)
     response = session.get(
         f"{DCM_API_URL}/api/v1/configurations/{identifier}",
-        headers=auth_headers(),
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
@@ -150,11 +157,13 @@ def main() -> int:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
+    token, token_source = resolve_token()
+
     logger.info("Starting Config Seeder")
     logger.info("  DCM API URL:  %s", DCM_API_URL)
     logger.info(
         "  Auth:         %s",
-        "bearer token" if DCM_API_TOKEN else "none (in-cluster)",
+        f"bearer token from {token_source}" if token else "NO TOKEN FOUND",
     )
     logger.info("  Seed delay:   %d s", SEED_DELAY_SECONDS)
     logger.info(
@@ -168,6 +177,23 @@ def main() -> int:
     logger.info("  Backdate:     %d s", VALID_FROM_BACKDATE_SECONDS)
     logger.info("  Run id:       %s", RUN_ID)
 
+    # Before the delay, not after it: the DCM 403s every unauthenticated request, so a
+    # missing token would otherwise burn the whole SEED_DELAY_SECONDS experiment window
+    # and only surface at the first POST, with the generator already producing.
+    if not token:
+        logger.error(
+            "No DCM bearer token available. The DCM rejects unauthenticated requests "
+            "with 403, in-cluster service DNS included. Set DCM_API_TOKEN, or run this "
+            "Job in a Quix deployment where Quix__Sdk__Token is injected. Exiting now "
+            "rather than after the %d s seed delay.",
+            SEED_DELAY_SECONDS,
+        )
+        return 2
+
+    # One Session, one Authorization header, every request: POSTs and readback GETs alike.
+    session = requests.Session()
+    session.headers["Authorization"] = f"Bearer {token}"
+
     started = time.monotonic()
     sleep_with_heartbeat(SEED_DELAY_SECONDS)
     seeding_started = time.monotonic()
@@ -180,7 +206,6 @@ def main() -> int:
     valid_from = valid_from_dt.isoformat()
     logger.info("seeding now, valid_from=%s", valid_from)
 
-    session = requests.Session()
     for index in range(SEEDED_DEVICE_COUNT):
         post_config(session, index, valid_from)
     seeding_elapsed = time.monotonic() - seeding_started

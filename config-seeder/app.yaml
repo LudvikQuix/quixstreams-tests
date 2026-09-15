@@ -6,15 +6,20 @@ variables:
     description: >-
       Base URL of the Dynamic Configuration Manager REST API, no trailing slash. The
       managed DCM deployment carries network.serviceName config-api-svc on port 80, so
-      in-cluster DNS resolves http://config-api-svc and no token is needed. Point it at
-      the publicAccess URL (and fill DCM_API_TOKEN) only if in-cluster DNS is unavailable.
+      in-cluster DNS resolves http://config-api-svc. Point it at the publicAccess URL only
+      if in-cluster DNS is unavailable. Either way the DCM requires a bearer token; see
+      DCM_API_TOKEN.
     defaultValue: http://config-api-svc
     required: true
   - name: DCM_API_TOKEN
     inputType: Secret
     description: >-
-      Bearer token for the DCM API. Sent only when non-empty. Required only when reaching
-      the DCM over its public URL; leave blank for in-cluster DNS.
+      Bearer token for the DCM API. Leave blank normally: the Job falls back to the
+      auto-injected Quix__Sdk__Token, which is the same credential QuixConfigurationService
+      uses to fetch per-version content. Set it only when the SDK token is not accepted and
+      the DCM wants a different token for its REST endpoints. The DCM answers 403 to an
+      unauthenticated request on every route, in-cluster included, so with neither source
+      populated the Job exits before its seed delay.
     defaultValue: ""
     required: false
   - name: SEED_DELAY_SECONDS

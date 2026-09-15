@@ -71,8 +71,17 @@ Both `MATCH` lines are the guard. A `MISMATCH` aborts the run.
 ## Reachability
 
 `DCM_API_URL` defaults to `http://config-api-svc`, the managed DCM's in-cluster service
-DNS on port 80, which needs no token. `DCM_API_TOKEN` is a fallback for reaching the DCM
-over its `publicAccess` URL instead; it is sent as a bearer only when non-empty.
+DNS on port 80. `DCM_API_TOKEN` is a fallback for reaching the DCM over its
+`publicAccess` URL instead.
+
+The DCM authenticates every route, in-cluster included — an unauthenticated
+`GET /api/v1/configurations` answers `403`. Every request therefore carries
+`Authorization: Bearer <token>`, resolved at startup from `DCM_API_TOKEN` first and the
+auto-injected `Quix__Sdk__Token` second; the SDK token is the same credential
+`QuixConfigurationService` presents when it fetches per-version content, so the normal
+deployment needs no extra configuration. With neither source populated the Job logs the
+problem and exits 2 **before** the seed delay, rather than sleeping 120 s and then 403ing
+on the first POST.
 
 No Kafka client, no polling loop, no configuration cache: the DCM's write path is a REST
 API with no Kafka interface, so the HTTP POSTs here are its documented seeding route, not

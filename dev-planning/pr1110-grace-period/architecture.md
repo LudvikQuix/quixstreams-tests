@@ -184,10 +184,20 @@ worth knowing before it happens rather than after.
 ### 5.3 `DCM_API_URL` defaults to `http://config-api-svc`, not `http://dcm`
 
 Resolved against the live cluster by the operator before implementation: every managed
-DCM in the org carries `network.serviceName: config-api-svc`, so in-cluster DNS works and
-no token is needed. `urlPrefix: dcm` is the *public* prefix, which is what spec §7.4's
-`http://dcm` conflated. `DCM_API_TOKEN` is kept as an optional fallback for reaching the
-public URL, sent as a bearer only when non-empty.
+DCM in the org carries `network.serviceName: config-api-svc`, so in-cluster DNS works.
+`urlPrefix: dcm` is the *public* prefix, which is what spec §7.4's `http://dcm` conflated.
+`DCM_API_TOKEN` is kept as an optional fallback for reaching the public URL.
+
+Corrected after the first live run: in-cluster DNS does **not** mean unauthenticated. The
+DCM answers `403` to a request with no `Authorization` header on every route, service DNS
+included — the first deployment reached the API, slept its 120 s and then 403ed on the
+first POST. The seeder now resolves a bearer token from `DCM_API_TOKEN`, then from the
+auto-injected `Quix__Sdk__Token`, sets it once on the `requests.Session`, and exits 2
+*before* the seed delay when neither yields one, so a misconfiguration costs seconds
+instead of a whole experiment window. `Quix__Sdk__Token` is the same credential
+`QuixConfigurationService` uses for its own HTTP fetches
+(`quixstreams/dataframe/joins/lookups/quix_configuration_service/lookup.py:108-110`), so
+`lookup-sink` needs no equivalent change — it authenticates itself.
 
 ### 5.4 The DCM block is hand-written into `quix.yaml`
 
