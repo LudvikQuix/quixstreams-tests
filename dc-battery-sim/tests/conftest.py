@@ -9,11 +9,12 @@ of its logic:
   clean set of module-level globals (main.py computes most of its "constants"
   once at import time from env vars).
 - `main_dunder_globals` executes main.py's literal source as `__main__` (via
-  `runpy.run_path`) with QuixStreams and the background thread stubbed out, so
-  that `handle_command` — defined only inside `if __name__ == "__main__":`
-  (main.py:221) and therefore not on the importable module surface — can be
-  reached and called directly. This drives the real source; it does not
-  reimplement handle_command's body.
+  `runpy.run_path`) with QuixStreams and the background thread stubbed out.
+  `handle_command` (main.py:222) and `is_command` (main.py:200) are ordinary
+  module-level functions now, reachable via `fresh_main` too; this fixture
+  remains useful for tests that want the actual `__main__` block (main.py:486)
+  executed with its Application/thread wiring stubbed. This drives the real
+  source; it does not reimplement handle_command's body.
 - `run_ticks` / `SimulationHarness` drive the real `run_simulation` against a
   fake QuixStreams producer/topic so RC-circuit and thermal behaviour can be
   observed from the actual published payloads.
@@ -41,12 +42,15 @@ if str(SIM_DIR) not in sys.path:
 def fresh_main():
     """Import (or re-import) dc-battery-sim/main.py with a clean module cache.
 
-    main.py computes every tunable "constant" (R1, R2, ALPHA1, ...) once at
-    import time from os.getenv(...). Any test that needs a specific
-    configuration must set env vars (monkeypatch.setenv) *before* requesting
-    this fixture, otherwise it sees whatever a previous import left behind.
-    Only the module-level code runs — the `if __name__ == "__main__":` block
-    is skipped, so no Application/broker/thread is touched.
+    main.py seeds `params` (R1, R2, TAU1, ... including the derived
+    `_alpha1`/`_alpha2`) and `cmd` from os.getenv(...) once at import time as
+    their startup baseline (main.py:78-84); tunable parameters can still be
+    rewritten afterwards via `apply_updates`, which is what most of this
+    suite exercises. Any test that needs a specific startup configuration
+    must set env vars (monkeypatch.setenv) *before* requesting this fixture,
+    otherwise it sees whatever a previous import left behind. Only the
+    module-level code runs — the `if __name__ == "__main__":` block
+    (main.py:486) is skipped, so no Application/broker/thread is touched.
     """
     sys.modules.pop("main", None)
     module = importlib.import_module("main")
@@ -201,18 +205,18 @@ class _FakeApplication:
 def main_dunder_globals(monkeypatch):
     """Execute main.py's literal source as `__main__` and return its globals.
 
-    `handle_command` (main.py:221-231) is defined inside the
-    `if __name__ == "__main__":` block, so it is not reachable via a normal
-    import. Reimplementing it in the test would prove nothing about the real
-    bug, so instead we run the actual file with its two external dependencies
-    stubbed:
+    `handle_command` (main.py:222) and `is_command` (main.py:200) are ordinary
+    module-level functions, not confined to the `if __name__ == "__main__":`
+    block (main.py:486) — they are reachable via a normal import too (see
+    `fresh_main`). This fixture is kept for tests that want the actual
+    `__main__` block executed, with its two external dependencies stubbed:
       - quixstreams.Application -> _FakeApplication (no broker)
       - threading.Thread.start -> no-op (the daemon simulation thread never
         actually runs; we don't need it for handle_command tests, and this
         avoids leaking a live background loop into the test session)
     `runpy.run_path(..., run_name="__main__")` then returns the executed
     module's global namespace, which includes the real `handle_command`,
-    `cmd`, and `cmd_lock` objects bound by the real source.
+    `cmd`, and `state_lock` objects bound by the real source.
     """
     monkeypatch.setattr(quixstreams, "Application", _FakeApplication)
     monkeypatch.setattr(threading.Thread, "start", lambda self: None)

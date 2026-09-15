@@ -1,14 +1,14 @@
-"""Red-first reproductions of OQ-3 (CLAUDE.md §7 D1 / spec §6.5.5, §8 OQ-3):
-`temperature_c = A_THERMAL x heat` (main.py:173), so a live A_THERMAL write must
-rebase `heat = temperature / A_new` to keep temperature_c continuous.
+"""Regression tests for OQ-3 (CLAUDE.md §7 D1 / spec §6.5.5, §8 OQ-3):
+`temperature = p["A_THERMAL"] * heat` (main.py:406), so a live A_THERMAL write
+must rebase `heat = temperature / A_new` to keep temperature_c continuous.
 
-Class (b) / API-absent: today there is no write path for A_THERMAL at all —
-it is a module-level constant set once at import (main.py:19), and the
-`params` live-parameter dict named throughout spec §6.5 does not exist yet.
-These tests drive the real, already-importable `run_simulation` for the
-"before" half, then reach for `fresh_main.params` to perform the live write —
-which is exactly where they fail today, with an AttributeError, because the
-tunable-parameter surface has not been built.
+A_THERMAL is a tunable parameter in `params` (§6.5.1), written the same way as
+any other parameter. The rebase itself lives in the loop at main.py:344-350,
+immediately after the per-tick snapshot, because `heat` and `temperature` are
+locals of `run_simulation` and unreachable from `handle_command`. These tests
+drive the real, already-importable `run_simulation` for the "before" half via
+the `sim_harness` fixture, then write `fresh_main.params["A_THERMAL"]` directly
+to trigger the live rebase.
 """
 
 import pytest
@@ -22,8 +22,8 @@ def test_a_thermal_live_write_keeps_temperature_continuous(fresh_main, sim_harne
     before = harness.wait_for_ticks(3)
     temp_before = before[-1]["temperature_c"]
 
-    # `params` does not exist on current main.py (§6.5.1 names it; it is not built
-    # yet) — this is the API-absent failure point for this whole test.
+    # Writing the tunable parameter directly triggers the main.py:344-350
+    # rebase on the simulation loop's next iteration.
     fresh_main.params["A_THERMAL"] = fresh_main.params["A_THERMAL"] * 5.0
 
     after = harness.wait_for_ticks(6)
