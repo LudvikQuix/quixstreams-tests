@@ -56,56 +56,39 @@ deployments:
   # default and references an org-level variable group that must exist and be assigned to
   # this workspace before the deployment can be created.
   - name: Dynamic Configuration Manager
-    libraryItemId: dynamic-configuration
+    application: DynamicConfiguration
     version: latest
-    deploymentType: Service
+    deploymentType: Managed
     resources:
-      limits:
-        cpu: 500
-        memory: 1000
+      cpu: 500
+      memory: 1000
       replicas: 1
-    network:
-      serviceName: config-api-svc
-      ports:
-        - port: 80
-          targetPort: 80
+    # urlPrefix also fixes the in-cluster service name, so it must stay equal to the
+    # host in config-seeder's DCM_API_URL.
     publicAccess:
       enabled: true
-      urlPrefix: dcm
-    desiredStatus: Running
-    variables:
-      - name: topic
-        inputType: OutputTopic
-        required: true
-        value: config-updates
-      - name: mongoConnectionGroup
-        inputType: VariableGroup
-        required: true
-        value: mongodb-connection
-      - name: mongoDatabase
-        inputType: FreeText
-        required: true
-        value: dcm
-      - name: mongoCollection
-        inputType: FreeText
-        required: true
-        value: configurations
+      urlPrefix: config-api-svc
+    # A Managed deployment configures itself through `configuration:`, not `variables:`.
+    # The keys are the library item's setting names, not env var names.
+    configuration:
+      topic: config-updates
+      consumerGroup: config-api-v1
+      # Required, no default. References an org-level variable group supplying
+      # MONGO_HOST / MONGO_PORT / MONGO_USER / MONGO_PASSWORD, which must exist and be
+      # assigned to this workspace before the deployment can be created.
+      mongoConnectionGroup: mongodb-connection
+      mongoDatabase: dcm
+      mongoCollection: configurations
       # `mongo` keeps blob storage off the DCM's critical path. `file` would make the
       # Storage Gateway a hard dependency of configuration delivery, i.e. of the thing
       # under test. The configs here are under 1 KB.
-      - name: contentStore
-        inputType: FreeText
-        value: mongo
-      - name: consumerGroup
-        inputType: FreeText
-        value: config-api-v1
-      - name: workers
-        inputType: FreeText
-        value: "1"
-      # Must agree with config-seeder's DCM_API_URL.
-      - name: port
-        inputType: FreeText
-        value: "80"
+      contentStore: mongo
+      workers: 1
+      port: 80
+    plugin:
+      embeddedView:
+        enabled: true
+        default: true
 
   # Starts Stopped on purpose. The moment it starts is T+0 for the whole experiment, and
   # both Lookup Sink arms must already be consuming before then (spec section 9 step 7);
