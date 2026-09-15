@@ -146,6 +146,22 @@ Implementation constraints for any tunable parameter:
   reads half-updated values.
 - **Validate against the lexicon `min`/`max`** before applying. Reject out-of-range
   values; never clamp silently.
+- **Rebase `heat` when `A_THERMAL` changes.** `temperature = A_THERMAL × heat`
+  (`main.py:173`), so a naive write jumps the temperature reading exactly the way a
+  `Q_MAX_AH` change would jump SOC. On write, recompute `heat = temperature / A_new`
+  so temperature stays continuous and the heat state absorbs the step — the idiom
+  `main.py:179` already uses after saturation.
+
+### D2 — `R1`/`R2` defaults corrected to the README's derived values (2026-09-15)
+
+`main.py:31-32` and `app.yaml` shipped `R1 = R2 = 0.0`, which makes the whole
+second-order RC circuit inert — `dc_voltage_v == ocv_v` and both RC voltages stay
+flat at 0. `README.md:152-153` and its derivation section say `0.1 Ω` / `0.05 Ω` and
+justify them physically, and `README.md:64` claims RC dynamics are active out of the
+box. The code drifted from its spec; **the README is the intent**. `main.py`,
+`app.yaml` and the lexicon move to `0.1` / `0.05` together.
+
+`R0` stays `0.0` — README agrees, and non-zero `R0` engages the quadratic solver.
 
 ## 8. Open questions — resolve before building, do not guess
 

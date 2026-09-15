@@ -43,9 +43,18 @@
       "min": null,
       "max": null,
       "enum": [
-        { "value": 0, "label": "Off" },
-        { "value": 1, "label": "Low (2.5 kW)" },
-        { "value": 2, "label": "High (5 kW)" }
+        {
+          "value": 0,
+          "label": "Off"
+        },
+        {
+          "value": 1,
+          "label": "Low (2.5 kW)"
+        },
+        {
+          "value": 2,
+          "label": "High (5 kW)"
+        }
       ],
       "direction": "input",
       "tunable": null
@@ -60,9 +69,18 @@
       "min": null,
       "max": null,
       "enum": [
-        { "value": 0, "label": "Off" },
-        { "value": 1, "label": "Low (2.5 kW)" },
-        { "value": 2, "label": "High (5 kW)" }
+        {
+          "value": 0,
+          "label": "Off"
+        },
+        {
+          "value": 1,
+          "label": "Low (2.5 kW)"
+        },
+        {
+          "value": 2,
+          "label": "High (5 kW)"
+        }
       ],
       "direction": "input",
       "tunable": null
@@ -258,7 +276,7 @@
       "datatype": "float",
       "unit": "°C/J",
       "default": 0.0002,
-      "min": 0.00002,
+      "min": 2e-05,
       "max": 0.002,
       "enum": null,
       "direction": null,
@@ -358,10 +376,10 @@
     {
       "name": "R1",
       "label": "RC1 Branch Resistance",
-      "description": "Charge-transfer polarisation resistance. Zero holds rc1_voltage_v at 0 V. See open question OQ-2: the README documents a derived value of 0.1 Ω.",
+      "description": "Charge-transfer polarisation resistance. Zero holds rc1_voltage_v at 0 V.",
       "datatype": "float",
       "unit": "Ω",
-      "default": 0.0,
+      "default": 0.1,
       "min": 0.0,
       "max": 0.5,
       "enum": null,
@@ -371,10 +389,10 @@
     {
       "name": "R2",
       "label": "RC2 Branch Resistance",
-      "description": "Diffusion polarisation resistance. Zero holds rc2_voltage_v at 0 V. See open question OQ-2: the README documents a derived value of 0.05 Ω.",
+      "description": "Diffusion polarisation resistance. Zero holds rc2_voltage_v at 0 V.",
       "datatype": "float",
       "unit": "Ω",
-      "default": 0.0,
+      "default": 0.05,
       "min": 0.0,
       "max": 0.5,
       "enum": null,

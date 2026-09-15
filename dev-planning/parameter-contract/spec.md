@@ -787,16 +787,21 @@ is in the deployment log.
 - **OQ-1 (inherited, CLAUDE.md §8 Q1) — how does the *dashboard* read the lexicon?**
   Deliberately unresolved. The sim reads a local file; nothing in §6.1 constrains the
   dashboard's path. Resolve before the dashboard spec.
-- **OQ-2 — `R1` / `R2` defaults disagree three ways.** README's parameter table and its
+- **OQ-2 — RESOLVED 2026-09-15: adopt the README's derived values, `R1 = 0.1`,
+  `R2 = 0.05`.** The code drifted from its spec; `main.py:31-32` and `app.yaml` are the
+  bug, and RC dynamics are meant to be on out of the box. Update `main.py`, `app.yaml`
+  and the lexicon together. Original finding below.
+- **OQ-2 (original) — `R1` / `R2` defaults disagree three ways.** README's parameter table and its
   derivation section say 0.1 Ω / 0.05 Ω and justify them physically; `main.py:31-32` and
   `app.yaml` say 0.0 / 0.0; README's RC-dynamics prose claims "the `.env` defaults ship
   with R1 = 0.1 and R2 = 0.05". The lexicon currently mirrors `app.yaml` (0.0), so RC
   dynamics are **off** out of the box despite the README saying they are on. **Needs a
   user decision**, and it is a one-line `app.yaml` change either way — this spec does not
   make it.
-- **OQ-3 — rebase `heat` when `A_THERMAL` changes (§6.5.5), or accept the temperature
-  step?** Recommendation: rebase. Needs sign-off because it defines new behaviour in a
-  model whose numbers are otherwise untouchable.
+- **OQ-3 — RESOLVED 2026-09-15: `A_THERMAL` stays tunable, and `heat` is rebased.**
+  On any `A_THERMAL` write, recompute `heat = temperature / A_new` so temperature is
+  continuous across the change and the heat state absorbs the step. This is the idiom
+  `main.py:179` already uses after thermal saturation. Implement §6.5.5 as specified.
 - **OQ-4 — should `applied` be its own topic instead of a key on `dashboard-out`?** A
   separate `dashboard-state` topic would let the dashboard subscribe from `earliest` and
   get the current state instantly rather than waiting up to 5 s. Costs a topic and a
