@@ -23,6 +23,9 @@ build/
 state/
 *.log
 
+# scratch
+.tmp/
+
 # OS / editor
 .DS_Store
 Thumbs.db
