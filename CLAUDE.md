@@ -225,6 +225,19 @@ messages `"battery-sim"`, which is not its `model.name` (`"dc-battery-sim"`). Wi
 this the dashboard needs a hardcoded key per model, which breaks the
 model-agnosticism in §1. Until v1.1 ships it is a required env var.
 
+### D8 — One deployment per concern; modularity lives in the code (2026-09-15)
+
+The dashboard is **one** Quix deployment, not a fan-out of pipeline services. No
+separate consumer/producer/API/WebSocket deployments, no sidecar, no second image.
+The whole pipeline is three service deployments — dashboard, `dc-battery-sim`,
+MongoDB — plus the managed DCM.
+
+Modularity is a **code** property: split the service into small focused modules
+(lexicon client, rolling window, WS hub, `dashboard-in` writer, DCM layout store),
+each its own file under the ~500-line ceiling. A module boundary does not need to be
+a deployment boundary, and making it one buys a topic hop, a second image and another
+thing to keep running for no gain.
+
 ## 8. Open questions — resolve before building, do not guess
 
 *None open. All Phase 1 and Phase 2 design questions are resolved in §7.*
