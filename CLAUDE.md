@@ -55,6 +55,7 @@ Every entry carries the same descriptor:
 | `min` / `max` | Range — drives slider/knob endpoints and input validation |
 | `enum` | For `datatype: enum` — `[{value, label}, …]`; `null` otherwise |
 | `direction` | `input` (model consumes) \| `output` (model emits). Signals only. |
+| `tunable` | Parameters only. `true` = writable live over `dashboard-in`; `false` = fixed at deploy time. |
 
 `direction` is what makes the element picker work — see §4.
 
@@ -64,7 +65,8 @@ Every entry carries the same descriptor:
 - **Output signals** — `soc_percent`, `q_act_as`, `ocv_v`, `dc_voltage_v`,
   `dc_current_a`, `rc1_voltage_v`, `rc2_voltage_v`, `temperature_c`, `heat_j`,
   `derating_factor` (all float), plus echoed setpoints
-- **Parameters** — `Q_MAX_AH`, `SAMPLE_TIME`, `A_THERMAL`, `KT0`–`KT2`, `KE`,
+- **Fixed parameters** (`tunable: false`) — `SAMPLE_TIME`, `Q_MAX_AH`
+- **Tunable parameters** (`tunable: true`) — `A_THERMAL`, `KT0`–`KT2`, `KE`,
   `TAU1`, `TAU2`, `R0`–`R2`, `COOLANT_TEMP`, `MAX_BATTERY_TEMP`
 
 ## 4. Dashboard UI contract
@@ -74,9 +76,9 @@ lexicon entry, and the binding picker is filtered by direction:
 
 | Element | Kind | Offers | Valid datatypes |
 |---|---|---|---|
-| Switch | control | `direction: input` + parameters | `bool`, `enum` |
-| Knob | control | `direction: input` + parameters | `uint`, `int`, `float` (needs `min`/`max`) |
-| Type-in field | control | `direction: input` + parameters | any |
+| Switch | control | `direction: input` + `tunable` params | `bool`, `enum` |
+| Knob | control | `direction: input` + `tunable` params | `uint`, `int`, `float` (needs `min`/`max`) |
+| Type-in field | control | `direction: input` + `tunable` params | any |
 | Numeric readout | visualisation | `direction: output` | any |
 | Chart | visualisation | `direction: output` | `uint`, `int`, `float` |
 
@@ -85,8 +87,8 @@ Rules:
 - An element whose bound entry vanishes from the lexicon renders as *unbound*, it
   does not crash the grid.
 - `min`/`max` are enforced client-side before publishing to `dashboard-in`.
-- Parameters and input signals are both writable, but they travel different paths —
-  see the open question in §7.
+- **Fixed parameters are never offered to a control element.** They may be shown
+  read-only, but the picker must filter them out of every control binding.
 
 ## 5. Repo layout
 
@@ -113,25 +115,52 @@ Dashboard work lives on **`devDB`** — that is the branch the Dashboard Test
 environment tracks, and it is what `.env` points at. Committing dashboard work to
 `dev` would deploy it to QuixStream Pipeline instead.
 
-## 7. Open questions — resolve before building, do not guess
+## 7. Decisions
+
+### D1 — Parameter tuning is event-based over `dashboard-in` (2026-09-15)
+
+Every parameter is either **fixed** or **tunable**:
+
+- **Fixed** — set once in the deployment (`app.yaml` variables → env vars), read at
+  startup, never changes at runtime. Anything whose mid-run change would break
+  simulation continuity belongs here: `SAMPLE_TIME` (loop rate *and* both RC
+  filter coefficients) and `Q_MAX_AH` (`SOC = q_act / Q_max`, so the reading jumps).
+- **Tunable** — carried as events on `dashboard-in` with **partial-update**
+  semantics: the env var supplies the startup default, and only the fields present
+  in a message are rewritten. This is exactly the pattern `handle_command` already
+  uses for signals (`dc-battery-sim/main.py:221-231`).
+
+A restart returns tunable parameters to their deployment baseline. That is
+intentional — the deployment defines the known-good starting point for a run.
+
+**No DCM on the value path.** DCM holds the lexicon only.
+
+Implementation constraints for any tunable parameter:
+
+- **Recompute derived constants.** `ALPHA1`/`ALPHA2` `= exp(−SAMPLE_TIME / TAU)`
+  (`main.py:35-36`) are computed once at import. A message setting `TAU1` or `TAU2`
+  must recompute them — storing the raw value alone is a silent no-op, and it is
+  the single most likely way this ships broken.
+- **Snapshot under the lock.** The producer loop already snapshots commands under
+  `cmd_lock` (`main.py:125`). Parameters join that same snapshot, so no tick ever
+  reads half-updated values.
+- **Validate against the lexicon `min`/`max`** before applying. Reject out-of-range
+  values; never clamp silently.
+
+## 8. Open questions — resolve before building, do not guess
 
 1. **How does the dashboard read the lexicon?** DCM's streaming primitive is
    `sdf.join_lookup()` + `QuixConfigurationService` (see the `quix-dcm-join-lookup`
-   skill), which is a *pipeline* idiom. The dashboard's element picker needs a
-   request/response read instead. Options: dashboard consumes the config topic into
-   local state and serves it over HTTP (`quix-rocksdb-state-api` pattern), or reads
-   the DCM API directly. **Decide, don't improvise.**
-2. **Live parameter tuning requires changing the SIL.** `dc-battery-sim` reads every
-   parameter from env vars *once at startup* (`main.py:17-49`). Nothing tunes at
-   runtime today. Either the sim gains a DCM `join_lookup` for parameters, or
-   parameters ride the `dashboard-in` topic alongside signals. This is a real change
-   to the "blackbox", so it needs an explicit decision.
-3. **Dashboard layout persistence** — where does the user's grid config live? DCM,
+   skill), which resolves config *per record by message key* — a pipeline idiom. The
+   element picker needs a request/response read instead. Options: read DCM's REST API
+   directly (`GET /api/v1/configurations/{id}/content`), or consume the config topic
+   into local state and serve it over HTTP (`quix-rocksdb-state-api` pattern).
+2. **Dashboard layout persistence** — where does the user's grid config live? DCM,
    browser storage, or a dedicated topic?
-4. **Chart history depth** — dashboard subscribes live at 10 Hz. How much backlog on
+3. **Chart history depth** — dashboard subscribes live at 10 Hz. How much backlog on
    page load, and from where (topic replay vs. lakehouse)?
 
-## 8. Working agreements
+## 9. Working agreements
 
 Global rules in `~/.claude/CLAUDE.md` apply in full. Project-specific emphasis:
 
