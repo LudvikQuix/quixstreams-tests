@@ -166,7 +166,7 @@ deployments:
         value: "0"
       - name: RUN_ID
         inputType: FreeText
-        value: r3
+        value: r4
       - name: LOG_EVERY
         inputType: FreeText
         value: "50"
@@ -206,7 +206,7 @@ deployments:
         value: "5"
       - name: CONFIG_TYPE
         inputType: FreeText
-        value: device_r3
+        value: device_r4
       # Load-bearing. Without the backdate, find_valid_version() rejects every pre-seed
       # record and the rig runs green while proving nothing.
       - name: VALID_FROM_BACKDATE_SECONDS
@@ -214,7 +214,7 @@ deployments:
         value: "86400"
       - name: RUN_ID
         inputType: FreeText
-        value: r3
+        value: r4
 
   # The service under test, arm 1. `state: {enabled: true}` is NOT optional here: the
   # buffer is a changelog-backed timestamped store and a misconfigured deployment fails
@@ -267,7 +267,7 @@ deployments:
         value: lookup-buffer
       - name: CONFIG_TYPE
         inputType: FreeText
-        value: device_r3
+        value: device_r4
       - name: SEEDED_DEVICE_COUNT
         inputType: FreeText
         value: "5"
@@ -333,7 +333,7 @@ deployments:
         value: lookup-buffer
       - name: CONFIG_TYPE
         inputType: FreeText
-        value: device_r3
+        value: device_r4
       - name: SEEDED_DEVICE_COUNT
         inputType: FreeText
         value: "5"
