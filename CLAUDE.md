@@ -30,8 +30,8 @@ Li-ion battery model (see its own README for the physics).
 > - `dashboard-in` — what the dashboard **sends**. Dashboard *produces*, SIL *consumes*.
 > - `dashboard-out` — what the dashboard **reads**. SIL *produces*, dashboard *consumes*.
 >
-> On `dc-battery-sim` these map to its `input` (`ui-data`) and `output`
-> (`battery-data`) env vars respectively.
+> On `dc-battery-sim` these are carried by its `input` and `output` env vars,
+> set to `dashboard-in` / `dashboard-out` in `quix.yaml`.
 
 The dashboard is a **plug-in service with its own image** — it is a normal Quix
 deployment, not a portal add-on. It owns a web UI and speaks only to these topics
@@ -101,11 +101,15 @@ Rules:
 
 ```
 dashboard-tests/
-├── CLAUDE.md              ← this file
-├── .env                   ← Quix creds (gitignored; .env.example is the template)
-├── quix.yaml              ← pipeline definition (not yet created)
-├── dc-battery-sim/        ← the blackbox SIL plant, as shipped
-└── dev-planning/<feature>/spec.md   ← Buddy writes specs here before any code
+├── CLAUDE.md                  ← this file
+├── quix.yaml                  ← pipeline definition (deployments + topics)
+├── .pre-commit-config.yaml    ← pinned lint gate (ruff v0.6.3)
+├── .env                       ← Quix creds (gitignored; .env.example is the template)
+├── mongodb/                   ← backing store for the DCM
+├── dc-battery-sim/            ← the blackbox SIL plant
+│   ├── lexicon.json           ← its signal/parameter lexicon
+│   └── tests/                 ← pytest suite
+└── dev-planning/<feature>/    ← spec.md, architecture.md, reports
 ```
 
 ## 6. Environment
