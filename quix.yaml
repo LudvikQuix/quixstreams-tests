@@ -1,11 +1,53 @@
 # Quix Project Descriptor
 # This file describes the data pipeline and configuration of resources of a Quix Project.
+#
+# PR1110 LookupBuffer grace-period test rig. Spec:
+# dev-planning/pr1110-grace-period/spec.md
+#
+# Deploy order matters (spec section 9): MongoDB, then the Dynamic Configuration Manager,
+# then both Lookup Sink arms and the Lake Sink, and only then the Data Generator. The
+# Config Seeder Job auto-runs the moment it is first created, so treat the minute the
+# Data Generator starts as T+0 and re-run the Job from the Portal if it fired early.
+#
+# TIMING - a full cycle completes in about 75 s. The four numbers are linked; changing
+# one alone breaks the experiment:
+#
+#   SLEEP_SECONDS 0.05        -> 20 msg/s across DEVICE_COUNT 10 = 2 msg/s per device,
+#                                so each device is revisited every 0.5 s. That revisit is
+#                                what releases a device's buffered records, because the
+#                                buffer has no timer - only traffic drains it.
+#   SEED_DELAY_SECONDS 20     -> configs for device-000..004 appear 20 s after T+0.
+#   GRACE_MS 45000            -> MUST exceed SEED_DELAY, or a pre-seed record times out
+#                                before its config lands and outcome A never happens.
+#                                25 s of margin here.
+#   SEEDED_DEVICE_COUNT 5     -> device-005..009 are never configured and produce the
+#                                timeout outcome, settled by the other devices' traffic.
+#
+# Consequences worth knowing: steady-state buffer depth is ~2 x 45 = 90 records per key,
+# far under the library's 1000-record release warning; the sweep covers all 10 keys in
+# 10/(4x20) = 0.125 s; and timeouts land AFTER 45 s rather than exactly on it, because a
+# deadline is settled by the next records to arrive, not by a clock.
+#
+# Timeline: T+0 generator starts (no configs exist) -> T+20 seed -> T+20.5 buffered
+# records released ENRICHED -> T+45..65 unseeded devices time out and emit defaults ->
+# T+75 query. Lake Sink flushes every 10 s / 100 rows so results appear promptly.
+#
+# CONFIG_TYPE IS RUN-SCOPED, and must be bumped with RUN_ID on every re-run. The DCM
+# resolves a config by (type, target_key) and keeps it forever, so a previous run's
+# configs still answer for device-000..N. Re-running against a type that has already
+# been seeded means every record resolves on its first attempt, nothing is ever
+# buffered, and BOTH the buffered-then-resolved and the timeout outcomes come back
+# empty - a green run that proves nothing. Bumping the type gives each run an empty
+# config namespace instead.
 
 metadata:
   version: 2.0
 
 # This section describes the Deployments of the data pipeline
 deployments:
+  # Backing store for the Dynamic Configuration Manager's configuration documents.
+  # serviceName MUST stay `mongodb`: that is the MONGO_HOST the `mongodb-connection`
+  # variable group supplies to the DCM.
   - name: MongoDB
     application: mongodb
     version: latest
@@ -17,37 +59,84 @@ deployments:
     state:
       enabled: true
       size: 1
-    desiredStatus: Running
     network:
       serviceName: mongodb
       ports:
         - port: 27017
           targetPort: 27017
+    desiredStatus: Running
+    variables:
+      - name: MONGO_INITDB_ROOT_USERNAME
+        inputType: FreeText
+        required: true
+        value: admin
+      - name: MONGO_INITDB_ROOT_PASSWORD
+        inputType: Secret
+        required: true
+        value: mongo_password
+      # Bump to an unused sibling (mongodb-v3, ...) to force a clean database with no
+      # shell in the container; the entry point never deletes the old directory. A wipe
+      # invalidates every configuration `config-updates` still references - delete and
+      # recreate that topic in the same action, and bump RUN_ID.
+      - name: MONGO_DBPATH
+        inputType: FreeText
+        required: true
+        value: /app/state/mongodb-v2
+
+  # Managed library item, no repo directory. Needs the workspace secret `mongo_password`
+  # to exist before it can authenticate to MongoDB.
   - name: Dynamic Configuration Manager
     application: DynamicConfiguration
     version: latest
     deploymentType: Managed
     resources:
-      limits:
-        cpu: 500
-        memory: 1000
+      cpu: 500
+      memory: 1000
+      replicas: 1
+    # serviceName is what gives the DCM in-cluster DNS, and it must stay equal to the
+    # host in config-seeder's DCM_API_URL. publicAccess/urlPrefix only controls the
+    # EXTERNAL hostname - setting it alone leaves the deployment with no internal name
+    # at all, and the seeder dies with "Failed to resolve 'config-api-svc'".
+    # No `ports:` here - a Managed deployment rejects them ("Managed deployments do not
+    # support custom ports"); the platform derives the port from the `port` setting below.
+    network:
+      serviceName: config-api-svc
     publicAccess:
       enabled: true
       urlPrefix: config-api-svc
-    network:
-      serviceName: config-api-svc
+    # A Managed deployment configures itself through `configuration:`, not `variables:`.
+    # The keys are the library item's setting names, not env var names.
     configuration:
       topic: config-updates
+      consumerGroup: config-api-v1
+      # The library item advertises a `mongoConnectionGroup` (VariableGroup) setting, but
+      # the sync validator on this cluster rejects it with "Configuration for variable
+      # 'MONGO_HOST' is required but not provided" even with the group created, populated
+      # and assigned. The individual settings below are what every working DCM in this
+      # org uses, so they are the supported form here.
+      # mongoPasswordSecret names a WORKSPACE SECRET, not a literal password; that secret
+      # must hold the same value as the mongodb deployment's MONGO_INITDB_ROOT_PASSWORD,
+      # or the DCM cannot authenticate and every record looks unresolvable.
       mongoHost: mongodb
       mongoPort: 27017
       mongoUser: admin
       mongoPasswordSecret: mongo_password
       mongoDatabase: dcm
       mongoCollection: configurations
+      # `mongo` keeps blob storage off the DCM's critical path. `file` would make the
+      # Storage Gateway a hard dependency of configuration delivery, i.e. of the thing
+      # under test. The configs here are under 1 KB.
+      contentStore: mongo
+      workers: 1
+      port: 80
     plugin:
       embeddedView:
         enabled: true
         default: true
+
+  # Starts Stopped on purpose. The moment it starts is T+0 for the whole experiment, and
+  # both Lookup Sink arms must already be consuming before then (spec section 9 step 7);
+  # otherwise every record resolves on the first attempt and nothing ever buffers.
   - name: Data Generator
     application: data-generator
     version: latest
@@ -58,14 +147,38 @@ deployments:
         memory: 300
     desiredStatus: Stopped
     variables:
+      - name: output
+        inputType: OutputTopic
+        required: true
+        value: sensor-data
       - name: DEVICE_COUNT
-        value: 2
+        inputType: FreeText
+        value: "1"
       - name: SEEDED_DEVICE_COUNT
-        value: 1
+        inputType: FreeText
+        value: "1"
+      - name: SLEEP_SECONDS
+        inputType: FreeText
+        value: "0.001"
+      # Escape hatch only; 0 = off. See spec section 2.4.
+      - name: TIMESTAMP_SKEW_MS
+        inputType: FreeText
+        value: "0"
       - name: RUN_ID
-        value: r17
+        inputType: FreeText
+        value: r18
       - name: LOG_EVERY
-        value: 50
+        inputType: FreeText
+        value: "2000"
+      # str = the device_id string. int = the device index as a real 4-byte integer key.
+      # Must be changed together with BOTH Lookup Sink arms' KEY_DESERIALIZER.
+      - name: KEY_TYPE
+        inputType: FreeText
+        value: str
+
+  # A Job block carries no desiredStatus, state or network. Only a NEWLY CREATED Job
+  # auto-runs on sync; converting an existing Service to a Job leaves it Stopped. To
+  # re-seed, restart the Job from the Portal - `replace: true` makes it idempotent.
   - name: Config Seeder
     application: config-seeder
     version: latest
@@ -75,16 +188,42 @@ deployments:
         cpu: 200
         memory: 300
     variables:
+      # In-cluster DNS for the managed DCM's `network.serviceName`, port 80.
+      - name: DCM_API_URL
+        inputType: FreeText
+        required: true
+        value: http://config-api-svc
+      # Blank on purpose: the Job falls back to the auto-injected Quix__Sdk__Token. The
+      # DCM 403s unauthenticated requests even in-cluster, so set this only if that token
+      # is rejected.
+      - name: DCM_API_TOKEN
+        inputType: Secret
+        value: ""
+      # The instrument. Must exceed pod start-up and be shorter than GRACE_MS/1000.
       - name: SEED_DELAY_SECONDS
-        value: 15
+        inputType: FreeText
+        value: "60"
       - name: DEVICE_COUNT
-        value: 2
+        inputType: FreeText
+        value: "1"
       - name: SEEDED_DEVICE_COUNT
-        value: 1
+        inputType: FreeText
+        value: "1"
       - name: CONFIG_TYPE
-        value: device_r17
+        inputType: FreeText
+        value: device_r18
+      # Load-bearing. Without the backdate, find_valid_version() rejects every pre-seed
+      # record and the rig runs green while proving nothing.
+      - name: VALID_FROM_BACKDATE_SECONDS
+        inputType: FreeText
+        value: "86400"
       - name: RUN_ID
-        value: r17
+        inputType: FreeText
+        value: r18
+
+  # The service under test, arm 1. `state: {enabled: true}` is NOT optional here: the
+  # buffer is a changelog-backed timestamped store and a misconfigured deployment fails
+  # loudly at startup.
   - name: Lookup Sink - Buffered
     application: lookup-sink
     version: latest
@@ -98,16 +237,71 @@ deployments:
       size: 1
     desiredStatus: Running
     variables:
+      - name: input
+        inputType: InputTopic
+        required: true
+        value: sensor-data
+      - name: config_topic
+        inputType: InputTopic
+        required: true
+        value: config-updates
+      - name: output
+        inputType: OutputTopic
+        required: true
+        value: enriched-sensor-data
+      - name: ARM
+        inputType: FreeText
+        value: buffered
+      - name: BUFFER_ENABLED
+        inputType: FreeText
+        value: "true"
       - name: GRACE_MS
-        value: 30000
+        inputType: FreeText
+        value: "300000"
+      - name: ON_TIMEOUT
+        inputType: FreeText
+        value: emit
+      - name: MAX_BUFFERED_PER_KEY
+        inputType: FreeText
+        value: "10000"
+      - name: ON_OVERFLOW
+        inputType: FreeText
+        value: drop-newest
+      - name: STORE_NAME
+        inputType: FreeText
+        value: lookup-buffer
       - name: CONFIG_TYPE
-        value: device_r17
+        inputType: FreeText
+        value: device_r18
       - name: SEEDED_DEVICE_COUNT
-        value: 1
+        inputType: FreeText
+        value: "1"
+      # Data topic only. Keep equal to the control arm's and to the generator's KEY_TYPE.
+      - name: KEY_DESERIALIZER
+        inputType: FreeText
+        value: str
+      # T5. Adds src_topic/src_partition/src_offset from message_context(). Switching it
+      # on adds columns to the lake table, so bump Lake Sink's TABLE_VERSION with it.
       - name: STAMP_MESSAGE_CONTEXT
-        value: true
+        inputType: FreeText
+        value: "false"
+      # Must differ from the control arm's, or the two split the partitions instead of
+      # each seeing every record and the paired comparison returns almost nothing.
       - name: CONSUMER_GROUP
-        value: pr1110_buffered_r17
+        inputType: FreeText
+        required: true
+        value: pr1110_buffered_r18
+      - name: AUTO_OFFSET_RESET
+        inputType: FreeText
+        value: latest
+      - name: LOGLEVEL
+        inputType: FreeText
+        value: INFO
+
+  # The same application directory, second deployment. BUFFER_ENABLED blank means
+  # buffer=None, which is today's unbuffered behaviour exactly - that IS the control.
+  # It deliberately has NO `state:` block: buffer=None registers no store, so if this
+  # deployment ever fails at startup demanding state, that is itself a finding.
   - name: Lookup Sink - Control
     application: lookup-sink
     version: latest
@@ -118,20 +312,67 @@ deployments:
         memory: 500
     desiredStatus: Running
     variables:
+      - name: input
+        inputType: InputTopic
+        required: true
+        value: sensor-data
+      - name: config_topic
+        inputType: InputTopic
+        required: true
+        value: config-updates
+      - name: output
+        inputType: OutputTopic
+        required: true
+        value: enriched-sensor-data
       - name: ARM
+        inputType: FreeText
         value: control
       - name: BUFFER_ENABLED
-        value: ''
+        inputType: FreeText
+        value: ""
       - name: GRACE_MS
-        value: 30000
+        inputType: FreeText
+        value: "300000"
+      - name: ON_TIMEOUT
+        inputType: FreeText
+        value: emit
+      - name: MAX_BUFFERED_PER_KEY
+        inputType: FreeText
+        value: "10000"
+      - name: ON_OVERFLOW
+        inputType: FreeText
+        value: drop-newest
+      - name: STORE_NAME
+        inputType: FreeText
+        value: lookup-buffer
       - name: CONFIG_TYPE
-        value: device_r17
+        inputType: FreeText
+        value: device_r18
       - name: SEEDED_DEVICE_COUNT
-        value: 1
+        inputType: FreeText
+        value: "1"
+      # Data topic only. Keep equal to the buffered arm's and to the generator's KEY_TYPE.
+      - name: KEY_DESERIALIZER
+        inputType: FreeText
+        value: str
+      # T5. Keep equal to the buffered arm's, so the control arm shows what the same
+      # columns look like with no buffer in the path.
       - name: STAMP_MESSAGE_CONTEXT
-        value: true
+        inputType: FreeText
+        value: "false"
       - name: CONSUMER_GROUP
-        value: pr1110_control_r17
+        inputType: FreeText
+        required: true
+        value: pr1110_control_r18
+      - name: AUTO_OFFSET_RESET
+        inputType: FreeText
+        value: latest
+      - name: LOGLEVEL
+        inputType: FreeText
+        value: INFO
+
+  # Separate from the service under test on purpose: a blobStorage bind failure must not
+  # be able to block the experiment, only its reporting surface.
   - name: Lake Sink
     application: lake-sink
     version: latest
@@ -142,26 +383,85 @@ deployments:
         memory: 1000
     desiredStatus: Running
     variables:
+      - name: input
+        inputType: InputTopic
+        required: true
+        value: enriched-sensor-data
+      - name: TABLE_NAME
+        inputType: FreeText
+        value: pr1110_grace
+      # Bump together with any HIVE_COLUMNS / TIMESTAMP_COLUMN / SORT_COLUMN change.
       - name: TABLE_VERSION
+        inputType: FreeText
         value: v2
+      - name: HIVE_COLUMNS
+        inputType: FreeText
+        value: year,month,day,hour,arm
+      - name: TIMESTAMP_COLUMN
+        inputType: FreeText
+        value: timestamp
+      - name: SORT_COLUMN
+        inputType: FreeText
+        value: emit_ms
+      - name: STATS_COLUMNS
+        inputType: FreeText
+        value: ""
+      - name: AUTO_DISCOVER
+        inputType: FreeText
+        value: "true"
+      - name: CATALOG_NAMESPACE
+        inputType: FreeText
+        value: default
       - name: BATCH_SIZE
-        value: 100
+        inputType: FreeText
+        value: "100"
       - name: COMMIT_INTERVAL
-        value: 10
+        inputType: FreeText
+        value: "10"
+      - name: CONSUMER_GROUP
+        inputType: FreeText
+        value: pr1110_lake_v1
+      - name: AUTO_OFFSET_RESET
+        inputType: FreeText
+        value: earliest
+      - name: MAX_WRITE_WORKERS
+        inputType: FreeText
+        value: "10"
+      - name: LOGLEVEL
+        inputType: FreeText
+        value: INFO
     blobStorage:
       bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
+  # Keyed sensor records. 4 partitions: both lookup-sink arms are single-replica so one
+  # consumer takes all 4, but the buffer's sweep cursor is PER-PARTITION - a partition
+  # holding buffered keys but receiving no records never settles them. Round-robin over
+  # 100 device keys hashes across all four, so no partition is ever starved of the
+  # traffic that drives its own sweep. 4 also leaves room to raise replicas later: a
+  # 1-partition topic can only ever have one consumer, no matter how many are added.
   - name: sensor-data
     configuration:
       partitions: 4
       retentionInMinutes: 1440
+
+  # DCM configuration change events. 1 partition: ordering of version events for one
+  # configuration must be total, the volume is 50 messages per run, and the lookup
+  # ASSIGNS every partition from offset 0 on each start regardless. Retention 30 days,
+  # not the 1 day default: the SDK rebuilds the whole configuration version history from
+  # this topic on every restart, so truncating it silently un-configures every device.
   - name: config-updates
     configuration:
       partitions: 1
       retentionInMinutes: 43200
+
+  # Enriched output from both arms, distinguished by the `arm` column. 4 partitions to
+  # match sensor-data so the lake sink can be scaled out later.
   - name: enriched-sensor-data
     configuration:
       partitions: 4
       retentionInMinutes: 1440
+
+# The buffer's changelog topic is created automatically by QuixStreams and must NOT be
+# declared here. Bumping CONSUMER_GROUP or STORE_NAME yields a fresh one.
