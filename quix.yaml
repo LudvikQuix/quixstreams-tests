@@ -56,7 +56,7 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-    desiredStatus: Stopped
+    desiredStatus: Running
     variables:
       - name: DEVICE_COUNT
         value: 2
