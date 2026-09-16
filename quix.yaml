@@ -93,7 +93,7 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-    desiredStatus: Running
+    desiredStatus: Stopped
     variables:
       - name: GRACE_MS
         value: 60000
