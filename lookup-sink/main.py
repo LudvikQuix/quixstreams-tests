@@ -16,8 +16,9 @@ comparable.
 
 Three settings here are not stylistic:
 
-* `key_deserializer="str"` on the data topic. Configurations are addressed by key, and
-  the buffer's per-key bookkeeping prefixes on the message key.
+* The data topic's key deserializer, `KEY_DESERIALIZER`, defaulting to "str".
+  Configurations are addressed by key, and the buffer's per-key bookkeeping prefixes on
+  the message key; "int" is there to drive a non-string key through both.
 * `fallback="default"` on the lookup. The SDK default is "error", which re-raises inside
   join() and kills the application when content cannot be fetched. A per-field
   `default=` does not cover that - `default` is consulted when the configuration is
@@ -49,6 +50,8 @@ UNRESOLVED_FIELD = "__unresolved__"
 
 TRUTHY = ("1", "true", "yes", "on")
 
+KEY_DESERIALIZERS = ("str", "int")
+
 
 def _env(name: str, default: str) -> str:
     """Read an env var, treating a blank Portal value as absent."""
@@ -67,6 +70,11 @@ ON_OVERFLOW = _env("ON_OVERFLOW", "drop-newest")
 STORE_NAME = _env("STORE_NAME", "lookup-buffer")
 CONFIG_TYPE = _env("CONFIG_TYPE", "device")
 SEEDED_DEVICE_COUNT = int(_env("SEEDED_DEVICE_COUNT", "50"))
+KEY_DESERIALIZER = _env("KEY_DESERIALIZER", "str")
+if KEY_DESERIALIZER not in KEY_DESERIALIZERS:
+    raise ValueError(
+        f"KEY_DESERIALIZER must be one of {KEY_DESERIALIZERS}, got {KEY_DESERIALIZER!r}"
+    )
 
 
 def stamp_ingest(value: dict) -> dict:
@@ -105,9 +113,10 @@ def main() -> None:
         auto_offset_reset=_env("AUTO_OFFSET_RESET", "latest"),
     )
 
-    data_topic = app.topic(name=os.environ["input"], key_deserializer="str")
+    data_topic = app.topic(name=os.environ["input"], key_deserializer=KEY_DESERIALIZER)
     config_topic = app.topic(name=os.environ["config_topic"])
-    # key_serializer="str" because the key arriving from data_topic is a str, not bytes.
+    # Fixed at "str": the key reaching here is whatever data_topic deserialized, so under
+    # KEY_DESERIALIZER=int an int arrives and StringSerializer rejects it.
     output_topic = app.topic(name=os.environ["output"], key_serializer="str")
 
     lookup = QuixConfigurationService(
@@ -145,7 +154,11 @@ def main() -> None:
 
     logger.info("Starting Lookup Sink")
     logger.info("  Arm:            %s", ARM)
-    logger.info("  Input topic:    %s", data_topic.name)
+    logger.info(
+        "  Input topic:    %s (key_deserializer=%s)",
+        data_topic.name,
+        KEY_DESERIALIZER,
+    )
     logger.info("  Config topic:   %s", config_topic.name)
     logger.info("  Output topic:   %s", output_topic.name)
     logger.info("  Config type:    %s", CONFIG_TYPE)

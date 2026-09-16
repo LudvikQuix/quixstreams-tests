@@ -26,6 +26,9 @@ from quixstreams.sources import Source
 logger = logging.getLogger(__name__)
 
 
+KEY_TYPES = ("str", "int")
+
+
 def _env(name: str, default: str) -> str:
     """Read an env var, treating a blank Portal value as absent.
 
@@ -47,6 +50,9 @@ SLEEP_SECONDS = float(_env("SLEEP_SECONDS", "0.05"))
 TIMESTAMP_SKEW_MS = int(_env("TIMESTAMP_SKEW_MS", "0"))
 RUN_ID = _env("RUN_ID", "r1")
 LOG_EVERY = int(_env("LOG_EVERY", "200"))
+KEY_TYPE = _env("KEY_TYPE", "str")
+if KEY_TYPE not in KEY_TYPES:
+    raise ValueError(f"KEY_TYPE must be one of {KEY_TYPES}, got {KEY_TYPE!r}")
 
 
 class SensorSource(Source):
@@ -60,6 +66,7 @@ class SensorSource(Source):
         timestamp_skew_ms: int,
         run_id: str,
         log_every: int,
+        key_type: str,
     ) -> None:
         super().__init__(name=name)
         self._device_count = device_count
@@ -67,6 +74,7 @@ class SensorSource(Source):
         self._timestamp_skew_ms = timestamp_skew_ms
         self._run_id = run_id
         self._log_every = log_every
+        self._key_type = key_type
         # Per-device monotonic counter. `seq` is the join key of the paired
         # buffered-vs-control comparison, so it must be per device, not global.
         self._seq = [0] * device_count
@@ -76,6 +84,9 @@ class SensorSource(Source):
         while self.running:
             index = produced % self._device_count
             device_id = f"device-{index:03d}"
+            # The message key follows KEY_TYPE; the payload's device_id stays the string
+            # form either way, because lookup-sink joins on the value's device_id field.
+            key = index if self._key_type == "int" else device_id
             seq = self._seq[index]
             self._seq[index] = seq + 1
 
@@ -90,9 +101,7 @@ class SensorSource(Source):
                 "run_id": self._run_id,
             }
 
-            message = self.serialize(
-                key=device_id, value=payload, timestamp_ms=timestamp_ms
-            )
+            message = self.serialize(key=key, value=payload, timestamp_ms=timestamp_ms)
             self.produce(
                 key=message.key,
                 value=message.value,
@@ -120,7 +129,9 @@ def main() -> None:
     )
 
     app = Application()
-    output_topic = app.topic(name=os.environ["output"], key_serializer="str")
+    # KEY_TYPE doubles as the serializer name: "str" and "int" are both entries in the
+    # SDK's SERIALIZERS registry, so "int" puts a real int32 on the wire, not digits.
+    output_topic = app.topic(name=os.environ["output"], key_serializer=KEY_TYPE)
 
     logger.info("Starting Data Generator")
     logger.info("  Output topic:   %s", output_topic.name)
@@ -140,6 +151,7 @@ def main() -> None:
         SEEDED_DEVICE_COUNT,
     )
     logger.info("  Timestamp skew: %d ms", TIMESTAMP_SKEW_MS)
+    logger.info("  Key type:       %s", KEY_TYPE)
     logger.info("  Run id:         %s", RUN_ID)
 
     app.add_source(
@@ -150,6 +162,7 @@ def main() -> None:
             timestamp_skew_ms=TIMESTAMP_SKEW_MS,
             run_id=RUN_ID,
             log_every=LOG_EVERY,
+            key_type=KEY_TYPE,
         ),
         topic=output_topic,
     )

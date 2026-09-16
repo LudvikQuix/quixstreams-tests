@@ -58,6 +58,17 @@ variables:
     description: Messages between progress log lines.
     defaultValue: "200"
     required: false
+  - name: KEY_TYPE
+    inputType: FreeText
+    description: >-
+      Type of the Kafka message key: str (default) produces the device_id string, int
+      produces the device's numeric index with key_serializer="int", i.e. a real 4-byte
+      integer on the wire rather than digits. The payload's device_id field stays a
+      string either way. Anything else raises at startup. Set int only for the
+      non-string-key test, and set lookup-sink's KEY_DESERIALIZER to int in the same
+      action - a mismatch makes every key undeserializable.
+    defaultValue: str
+    required: false
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py

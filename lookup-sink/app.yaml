@@ -94,6 +94,17 @@ variables:
       config-seeder's value.
     defaultValue: "50"
     required: false
+  - name: KEY_DESERIALIZER
+    inputType: FreeText
+    description: >-
+      Key deserializer for the DATA topic only; str (default) or int, anything else
+      raises at startup. The lookup resolves configurations by message key and the
+      buffer prefixes its store on that key, so int is what drives a non-string key
+      through both. Must match data-generator's KEY_TYPE. The output topic's
+      key_serializer stays str regardless, so under int the emit path is expected to
+      reject the key.
+    defaultValue: str
+    required: false
   - name: CONSUMER_GROUP
     inputType: FreeText
     description: >-
