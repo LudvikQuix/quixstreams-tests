@@ -153,7 +153,7 @@ deployments:
         value: sensor-data
       - name: DEVICE_COUNT
         inputType: FreeText
-        value: "5"
+        value: "1"
       - name: SEEDED_DEVICE_COUNT
         inputType: FreeText
         value: "0"
@@ -166,7 +166,7 @@ deployments:
         value: "0"
       - name: RUN_ID
         inputType: FreeText
-        value: r15
+        value: r16
       - name: LOG_EVERY
         inputType: FreeText
         value: "50"
@@ -174,7 +174,7 @@ deployments:
       # Must be changed together with BOTH Lookup Sink arms' KEY_DESERIALIZER.
       - name: KEY_TYPE
         inputType: FreeText
-        value: int
+        value: str
 
   # A Job block carries no desiredStatus, state or network. Only a NEWLY CREATED Job
   # auto-runs on sync; converting an existing Service to a Job leaves it Stopped. To
@@ -205,13 +205,13 @@ deployments:
         value: "15"
       - name: DEVICE_COUNT
         inputType: FreeText
-        value: "5"
+        value: "1"
       - name: SEEDED_DEVICE_COUNT
         inputType: FreeText
         value: "0"
       - name: CONFIG_TYPE
         inputType: FreeText
-        value: device_r15
+        value: device_r16
       # Load-bearing. Without the backdate, find_valid_version() rejects every pre-seed
       # record and the rig runs green while proving nothing.
       - name: VALID_FROM_BACKDATE_SECONDS
@@ -219,7 +219,7 @@ deployments:
         value: "86400"
       - name: RUN_ID
         inputType: FreeText
-        value: r15
+        value: r16
 
   # The service under test, arm 1. `state: {enabled: true}` is NOT optional here: the
   # buffer is a changelog-backed timestamped store and a misconfigured deployment fails
@@ -232,9 +232,8 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-    state:
-      enabled: true
-      size: 1
+    # T1 only: no volume, so a restart rebuilds the buffer from the changelog and the
+    # ticker must settle what it recovered with no traffic on the partition.
     desiredStatus: Running
     variables:
       - name: input
@@ -272,14 +271,14 @@ deployments:
         value: lookup-buffer
       - name: CONFIG_TYPE
         inputType: FreeText
-        value: device_r15
+        value: device_r16
       - name: SEEDED_DEVICE_COUNT
         inputType: FreeText
         value: "0"
       # Data topic only. Keep equal to the control arm's and to the generator's KEY_TYPE.
       - name: KEY_DESERIALIZER
         inputType: FreeText
-        value: int
+        value: str
       # T5. Adds src_topic/src_partition/src_offset from message_context(). Switching it
       # on adds columns to the lake table, so bump Lake Sink's TABLE_VERSION with it.
       - name: STAMP_MESSAGE_CONTEXT
@@ -290,7 +289,7 @@ deployments:
       - name: CONSUMER_GROUP
         inputType: FreeText
         required: true
-        value: pr1110_buffered_r15
+        value: pr1110_buffered_r16
       - name: AUTO_OFFSET_RESET
         inputType: FreeText
         value: latest
@@ -347,14 +346,14 @@ deployments:
         value: lookup-buffer
       - name: CONFIG_TYPE
         inputType: FreeText
-        value: device_r15
+        value: device_r16
       - name: SEEDED_DEVICE_COUNT
         inputType: FreeText
         value: "0"
       # Data topic only. Keep equal to the buffered arm's and to the generator's KEY_TYPE.
       - name: KEY_DESERIALIZER
         inputType: FreeText
-        value: int
+        value: str
       # T5. Keep equal to the buffered arm's, so the control arm shows what the same
       # columns look like with no buffer in the path.
       - name: STAMP_MESSAGE_CONTEXT
@@ -363,7 +362,7 @@ deployments:
       - name: CONSUMER_GROUP
         inputType: FreeText
         required: true
-        value: pr1110_control_r15
+        value: pr1110_control_r16
       - name: AUTO_OFFSET_RESET
         inputType: FreeText
         value: latest
