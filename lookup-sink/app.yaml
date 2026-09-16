@@ -105,6 +105,19 @@ variables:
       reject the key.
     defaultValue: str
     required: false
+  - name: STAMP_MESSAGE_CONTEXT
+    inputType: FreeText
+    description: >-
+      true/1/yes/on adds src_topic, src_partition and src_offset to every emitted row,
+      read from message_context() after the join - the same accessor sdf.sink() uses, so
+      the columns are the attribution a lakehouse sink wired in here would record. This
+      is the T5 instrument: a record released from the buffer by another key's traffic
+      carries the TRIGGERING record's context, while one settled by the deadline tick
+      carries its own, and only these columns make the difference visible. Off by
+      default, which leaves the table schema unchanged; adding the columns evolves the
+      lake table, so bump Lake Sink's TABLE_VERSION when switching it on.
+    defaultValue: "false"
+    required: false
   - name: CONSUMER_GROUP
     inputType: FreeText
     description: >-

@@ -31,13 +31,18 @@ Three settings here are not stylistic:
 The buffer is an EXPANDED transform: one input record can emit many outputs, each with
 its own key, timestamp and headers, and an output may belong to a different key than the
 record that triggered it. Nothing here may assume 1:1 or rely on offset order.
+
+`STAMP_MESSAGE_CONTEXT` adds src_topic/src_partition/src_offset to every row, read from
+`message_context()` after the join - the same accessor `sdf.sink()` uses to attribute a
+record, so the columns are what a lakehouse sink wired in at this point would file the
+record under. Off by default: with it off the emitted schema is unchanged.
 """
 
 import logging
 import os
 import time
 
-from quixstreams import Application
+from quixstreams import Application, message_context
 from quixstreams.dataframe.joins.lookups import LookupBuffer, QuixConfigurationService
 
 logger = logging.getLogger(__name__)
@@ -75,12 +80,25 @@ if KEY_DESERIALIZER not in KEY_DESERIALIZERS:
     raise ValueError(
         f"KEY_DESERIALIZER must be one of {KEY_DESERIALIZERS}, got {KEY_DESERIALIZER!r}"
     )
+STAMP_MESSAGE_CONTEXT = _env("STAMP_MESSAGE_CONTEXT", "false").lower() in TRUTHY
 
 
 def stamp_ingest(value: dict) -> dict:
     """Stamp operator-entry wall clock. This is the grace clock's zero."""
     value["ingest_ms"] = int(time.time() * 1000)
     return value
+
+
+def stamp_source(value: dict) -> None:
+    """Write the Kafka context this record is being processed under into
+    src_topic/src_partition/src_offset. All three are None when no context is set."""
+    try:
+        ctx = message_context()
+    except Exception:
+        ctx = None
+    value["src_topic"] = ctx.topic if ctx else None
+    value["src_partition"] = int(ctx.partition) if ctx else None
+    value["src_offset"] = int(ctx.offset) if ctx else None
 
 
 def stamp_emit(value: dict) -> dict:
@@ -99,6 +117,8 @@ def stamp_emit(value: dict) -> dict:
     value["buffer_enabled"] = BUFFER_ENABLED
     value["grace_ms"] = GRACE_MS
     value["on_timeout"] = ON_TIMEOUT
+    if STAMP_MESSAGE_CONTEXT:
+        stamp_source(value)
     return value
 
 
@@ -163,6 +183,7 @@ def main() -> None:
     logger.info("  Output topic:   %s", output_topic.name)
     logger.info("  Config type:    %s", CONFIG_TYPE)
     logger.info("  Consumer group: %s", os.environ["CONSUMER_GROUP"])
+    logger.info("  Context stamp:  %s", STAMP_MESSAGE_CONTEXT)
     if buffer is None:
         logger.info("  Buffer:         DISABLED (buffer=None, unbuffered behaviour)")
     else:
