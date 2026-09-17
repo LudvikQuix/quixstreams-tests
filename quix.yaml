@@ -56,14 +56,14 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-    desiredStatus: Running
+    desiredStatus: Stopped
     variables:
       - name: DEVICE_COUNT
         value: 10
       - name: SEEDED_DEVICE_COUNT
         value: 5
       - name: RUN_ID
-        value: r21
+        value: r22
       - name: LOG_EVERY
         value: 50
   - name: Config Seeder
@@ -82,9 +82,9 @@ deployments:
       - name: SEEDED_DEVICE_COUNT
         value: 5
       - name: CONFIG_TYPE
-        value: device_r21
+        value: device_r22
       - name: RUN_ID
-        value: r21
+        value: r22
   - name: Lookup Sink - Buffered
     application: lookup-sink
     version: latest
@@ -99,13 +99,13 @@ deployments:
     desiredStatus: Running
     variables:
       - name: GRACE_MS
-        value: 45000
+        value: 120000
       - name: CONFIG_TYPE
-        value: device_r21
+        value: device_r22
       - name: SEEDED_DEVICE_COUNT
         value: 5
       - name: CONSUMER_GROUP
-        value: pr1110_buffered_r21
+        value: pr1110_buffered_r22
   - name: Lookup Sink - Control
     application: lookup-sink
     version: latest
@@ -121,13 +121,13 @@ deployments:
       - name: BUFFER_ENABLED
         value: ''
       - name: GRACE_MS
-        value: 45000
+        value: 120000
       - name: CONFIG_TYPE
-        value: device_r21
+        value: device_r22
       - name: SEEDED_DEVICE_COUNT
         value: 5
       - name: CONSUMER_GROUP
-        value: pr1110_control_r21
+        value: pr1110_control_r22
   - name: Lake Sink
     application: lake-sink
     version: latest
