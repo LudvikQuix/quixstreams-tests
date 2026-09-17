@@ -63,7 +63,7 @@ deployments:
       - name: SEEDED_DEVICE_COUNT
         value: 5
       - name: RUN_ID
-        value: r24
+        value: r25
       - name: LOG_EVERY
         value: 50
   - name: Config Seeder
@@ -82,9 +82,9 @@ deployments:
       - name: SEEDED_DEVICE_COUNT
         value: 5
       - name: CONFIG_TYPE
-        value: device_r24
+        value: device_r25
       - name: RUN_ID
-        value: r24
+        value: r25
   - name: Lookup Sink - Buffered
     application: lookup-sink
     version: latest
@@ -101,11 +101,11 @@ deployments:
       - name: GRACE_MS
         value: 120000
       - name: CONFIG_TYPE
-        value: device_r24
+        value: device_r25
       - name: SEEDED_DEVICE_COUNT
         value: 5
       - name: CONSUMER_GROUP
-        value: pr1110_buffered_r24
+        value: pr1110_buffered_r25
   - name: Lookup Sink - Control
     application: lookup-sink
     version: latest
@@ -123,11 +123,11 @@ deployments:
       - name: GRACE_MS
         value: 120000
       - name: CONFIG_TYPE
-        value: device_r24
+        value: device_r25
       - name: SEEDED_DEVICE_COUNT
         value: 5
       - name: CONSUMER_GROUP
-        value: pr1110_control_r24
+        value: pr1110_control_r25
   - name: Lake Sink
     application: lake-sink
     version: latest

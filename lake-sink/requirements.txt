@@ -1,4 +1,4 @@
-quixstreams[quixdatalake] @ git+https://github.com/quixio/quix-streams.git@4d2ad033e6f6a0323defd155f438db7b0370ad83
+quixstreams[quixdatalake] @ git+https://github.com/quixio/quix-streams.git@579231eec4f56438235f656b23fae28153629459
 
 # The [quixdatalake] extra pulls a BARE `quixportal>=0.1.0`, whose cloud filesystem
 # backends (s3fs / adlfs / gcsfs) live behind its own `all` extra - so the extra alone
