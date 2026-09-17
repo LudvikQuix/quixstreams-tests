@@ -15,6 +15,7 @@ Published view: https://claude.ai/artifact/LdSeBXteUSogbEPG8BYdT3
 
 | Scenario | `6632b46c` | `ce3063b8` | `9df99ff6` | `178d4a06` | `683be529` |
 |---|---|---|---|---|---|
+| Functional — three outcomes | — | PASS | (D5 regression) | — | **PASS** |
 | T1 idle-partition drain | FAIL | PASS | PASS | — | **PASS** |
 | T1 changelog recovery | — | — | FAIL | — | **pending (r19)** |
 | T2 content unreachable | — | — | FAIL (source) | claimed fixed | not run |
@@ -25,6 +26,45 @@ Published view: https://claude.ai/artifact/LdSeBXteUSogbEPG8BYdT3
 Every defect found on the early builds is fixed and verified on `683be529`, except
 T1's recovery half (staged, not yet run) and T2 (deliberately not run on a
 deployment — see below).
+
+---
+
+## Functional scenario — the three outcomes
+
+**PASS on `683be529`** (run r20). The original end-to-end test: 10 devices, five
+configured, seed at T+20 inside a 45 s grace, so all three outcomes occur in one
+window. This is the check that the feature does its job; the numbered scenarios below
+probe edge paths.
+
+| arm | devices | resolved | rows | dwell_ms |
+|---|---|---|---|---|
+| buffered | unseeded | false | 737 | 45 000 – 45 170 |
+| buffered | seeded | **true** | 1189 | 0 – 26 043 |
+| control | unseeded | false | 1185 | 0 – 1 |
+| control | seeded | false | **269** | 0 – 1 |
+| control | seeded | true | 920 | 0 – 144 |
+
+Control defaulted 269 seeded records; buffered defaulted **zero** and resolved exactly
+269 more (1189 vs 920). The arithmetic closes, which is what makes the result readable
+as the buffer's doing rather than a counting artefact. Timeouts fired at +0 to +170 ms
+against the 45 000 ms grace.
+
+`buffered/seeded/false` is **absent**, so the D5 regression seen on `9df99ff6` — the
+first two records of every key never released — is gone.
+
+### Flush after the producer stops
+
+448 records held at 08:51:02; gap closed to zero by 08:52:17 — **75 s against a 45 s
+grace** — ending at 2978 = 2978, lossless.
+
+The flush completes *after* the grace period, not at the moment the producer stops:
+each record waits out its own `grace_ms` from its own arrival, so the tail of the drain
+is the tail of the arrivals. Confirmed correct behaviour. The operational rule is to
+allow at least `grace_ms` after the last message before treating the output as
+complete, and not to tear the consumer down sooner.
+
+Measured across four runs, all lossless: 446 → 0 (~64 s), 2946 → 0 (5 m 11 s, 300 s
+grace), 595 → 0 (~106 s), 448 → 0 (75 s).
 
 ---
 
