@@ -394,7 +394,7 @@ deployments:
       # Bump together with any HIVE_COLUMNS / TIMESTAMP_COLUMN / SORT_COLUMN change.
       - name: TABLE_VERSION
         inputType: FreeText
-        value: v2
+        value: v3
       - name: HIVE_COLUMNS
         inputType: FreeText
         value: year,month,day,hour,arm
