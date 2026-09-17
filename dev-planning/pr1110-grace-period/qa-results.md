@@ -16,6 +16,7 @@ Published view: https://claude.ai/artifact/LdSeBXteUSogbEPG8BYdT3
 | Scenario | `6632b46c` | `ce3063b8` | `9df99ff6` | `178d4a06` | `683be529` |
 |---|---|---|---|---|---|
 | Functional — three outcomes | — | PASS | (D5 regression) | — | **PASS** |
+| Functional on PR 1151 (`ecd4f30c`, `4d2ad033`) | — | — | — | — | **PASS** |
 | T1 idle-partition drain | FAIL | PASS | PASS | — | **PASS** |
 | T1 changelog recovery | — | — | FAIL | — | **pending (r19)** |
 | T2 content unreachable | — | — | FAIL (source) | claimed fixed | not run |
@@ -26,6 +27,43 @@ Published view: https://claude.ai/artifact/LdSeBXteUSogbEPG8BYdT3
 Every defect found on the early builds is fixed and verified on `683be529`, except
 T1's recovery half (staged, not yet run) and T2 (deliberately not run on a
 deployment — see below).
+
+---
+
+## PR 1151 — functional scenario on `4d2ad033`
+
+PR 1151 (`refactor(lookup): drop runtime data validation from the buffer`) sits on top
+of the grace-period branch and removes the runtime serializability probe, −625/+42.
+Build-time checks are kept. Functional scenario only, on the deployment.
+
+**PASS** (run r24). 10 devices, five configured, seed 69 s in against a 120 s grace,
+state volume on, fresh consumer groups.
+
+| arm | devices | resolved | rows | dwell_ms |
+|---|---|---|---|---|
+| buffered | unseeded | false | 27 | 120 017 – 120 049 |
+| buffered | seeded | **true** | 1225 | 0 – 64 746 |
+| control | unseeded | false | 1223 | 0 – 1 |
+| control | seeded | false | **655** | 0 – 1 |
+| control | seeded | true | 570 | 0 – 79 |
+
+Control defaulted 655 configured-device records; buffered defaulted **none** and
+resolved exactly 655 more (1225 against 570). `buffered/seeded/false` absent. Timeouts
+at +17 to +49 ms against the 120 000 ms grace.
+
+**Flush after the producer stops:** 1196 held; gap closed to zero in 134 s; final
+3176 = 3176, lossless.
+
+**What this run does not cover.** PR 1151's actual change is the removal of the
+serializability probe, so a value the store's serializer refuses now fails the
+transaction and crash-loops the partition rather than settling through `on_timeout`.
+The generator emits clean JSON, so nothing here exercises that path. The result says
+the refactor did not break the happy path; it says nothing about whether the removed
+handling was safe to remove.
+
+An earlier run on the previous PR 1151 head (`ecd4f30c`, run r22) gave the same
+signature: 210 rescued, zero seeded timeouts, +6 to +58 ms precision, flush
+1196 → 0 lossless.
 
 ---
 
