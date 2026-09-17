@@ -153,10 +153,10 @@ deployments:
         value: sensor-data
       - name: DEVICE_COUNT
         inputType: FreeText
-        value: "4"
+        value: "10"
       - name: SEEDED_DEVICE_COUNT
         inputType: FreeText
-        value: "0"
+        value: "5"
       - name: SLEEP_SECONDS
         inputType: FreeText
         value: "0.05"
@@ -166,7 +166,7 @@ deployments:
         value: "0"
       - name: RUN_ID
         inputType: FreeText
-        value: r19
+        value: r20
       - name: LOG_EVERY
         inputType: FreeText
         value: "50"
@@ -202,16 +202,16 @@ deployments:
       # The instrument. Must exceed pod start-up and be shorter than GRACE_MS/1000.
       - name: SEED_DELAY_SECONDS
         inputType: FreeText
-        value: "60"
+        value: "20"
       - name: DEVICE_COUNT
         inputType: FreeText
-        value: "4"
+        value: "10"
       - name: SEEDED_DEVICE_COUNT
         inputType: FreeText
-        value: "0"
+        value: "5"
       - name: CONFIG_TYPE
         inputType: FreeText
-        value: device_r19
+        value: device_r20
       # Load-bearing. Without the backdate, find_valid_version() rejects every pre-seed
       # record and the rig runs green while proving nothing.
       - name: VALID_FROM_BACKDATE_SECONDS
@@ -219,7 +219,7 @@ deployments:
         value: "86400"
       - name: RUN_ID
         inputType: FreeText
-        value: r19
+        value: r20
 
   # The service under test, arm 1. `state: {enabled: true}` is NOT optional here: the
   # buffer is a changelog-backed timestamped store and a misconfigured deployment fails
@@ -258,7 +258,7 @@ deployments:
         value: "true"
       - name: GRACE_MS
         inputType: FreeText
-        value: "60000"
+        value: "45000"
       - name: ON_TIMEOUT
         inputType: FreeText
         value: emit
@@ -273,10 +273,10 @@ deployments:
         value: lookup-buffer
       - name: CONFIG_TYPE
         inputType: FreeText
-        value: device_r19
+        value: device_r20
       - name: SEEDED_DEVICE_COUNT
         inputType: FreeText
-        value: "0"
+        value: "5"
       # Data topic only. Keep equal to the control arm's and to the generator's KEY_TYPE.
       - name: KEY_DESERIALIZER
         inputType: FreeText
@@ -291,7 +291,7 @@ deployments:
       - name: CONSUMER_GROUP
         inputType: FreeText
         required: true
-        value: pr1110_buffered_r19
+        value: pr1110_buffered_r20
       - name: AUTO_OFFSET_RESET
         inputType: FreeText
         value: latest
@@ -333,7 +333,7 @@ deployments:
         value: ""
       - name: GRACE_MS
         inputType: FreeText
-        value: "60000"
+        value: "45000"
       - name: ON_TIMEOUT
         inputType: FreeText
         value: emit
@@ -348,10 +348,10 @@ deployments:
         value: lookup-buffer
       - name: CONFIG_TYPE
         inputType: FreeText
-        value: device_r19
+        value: device_r20
       - name: SEEDED_DEVICE_COUNT
         inputType: FreeText
-        value: "0"
+        value: "5"
       # Data topic only. Keep equal to the buffered arm's and to the generator's KEY_TYPE.
       - name: KEY_DESERIALIZER
         inputType: FreeText
@@ -364,7 +364,7 @@ deployments:
       - name: CONSUMER_GROUP
         inputType: FreeText
         required: true
-        value: pr1110_control_r19
+        value: pr1110_control_r20
       - name: AUTO_OFFSET_RESET
         inputType: FreeText
         value: latest
