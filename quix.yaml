@@ -59,11 +59,11 @@ deployments:
     desiredStatus: Stopped
     variables:
       - name: DEVICE_COUNT
-        value: 4
+        value: 10
       - name: SEEDED_DEVICE_COUNT
-        value: 0
+        value: 5
       - name: RUN_ID
-        value: r23
+        value: r24
       - name: LOG_EVERY
         value: 50
   - name: Config Seeder
@@ -78,13 +78,13 @@ deployments:
       - name: SEED_DELAY_SECONDS
         value: 20
       - name: DEVICE_COUNT
-        value: 4
+        value: 10
       - name: SEEDED_DEVICE_COUNT
-        value: 0
+        value: 5
       - name: CONFIG_TYPE
-        value: device_r23
+        value: device_r24
       - name: RUN_ID
-        value: r23
+        value: r24
   - name: Lookup Sink - Buffered
     application: lookup-sink
     version: latest
@@ -102,11 +102,11 @@ deployments:
       - name: GRACE_MS
         value: 120000
       - name: CONFIG_TYPE
-        value: device_r23
+        value: device_r24
       - name: SEEDED_DEVICE_COUNT
-        value: 0
+        value: 5
       - name: CONSUMER_GROUP
-        value: pr1110_buffered_r23
+        value: pr1110_buffered_r24
   - name: Lookup Sink - Control
     application: lookup-sink
     version: latest
@@ -124,11 +124,11 @@ deployments:
       - name: GRACE_MS
         value: 120000
       - name: CONFIG_TYPE
-        value: device_r23
+        value: device_r24
       - name: SEEDED_DEVICE_COUNT
-        value: 0
+        value: 5
       - name: CONSUMER_GROUP
-        value: pr1110_control_r23
+        value: pr1110_control_r24
   - name: Lake Sink
     application: lake-sink
     version: latest
