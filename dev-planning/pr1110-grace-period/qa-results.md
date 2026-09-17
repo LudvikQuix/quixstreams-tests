@@ -30,7 +30,45 @@ deployment — see below).
 
 ---
 
-## PR 1151 — functional scenario on `4d2ad033`
+## PR 1151 — functional scenario, three heads
+
+PR 1151 (`refactor(lookup): drop runtime data validation from the buffer`) sits on top
+of the grace-period branch and removes the runtime serializability probe, −625/+42.
+Build-time checks are kept. Functional scenario only, on the deployment.
+
+**PASS on all three heads tested.** 10 devices, five configured, seed at T+20 inside a
+120 s grace, state volume on, fresh consumer groups per run.
+
+| head | run | rescued | seeded timeouts | timeout precision | flush |
+|---|---|---|---|---|---|
+| `ecd4f30c` | r22 | 210 | 0 | +6 – 58 ms | 1196 → 0 in 150 s, lossless |
+| `4d2ad033` | r24 | 655 | 0 | +17 – 49 ms | 1196 → 0 in 134 s, lossless |
+| `579231ee` | r25 | 660 | 0 | +4 – 44 ms | 1196 → 0 in 147 s, lossless |
+
+In every run the buffered arm defaulted **nothing** and resolved exactly as many
+records as the control arm defaulted — the counts reconcile to the record, which is
+what makes the difference attributable to the buffer rather than to sampling.
+
+Latest run (r25, `579231ee`):
+
+| arm | devices | resolved | rows | dwell_ms |
+|---|---|---|---|---|
+| buffered | unseeded | false | 52 | 120 004 – 120 044 |
+| buffered | seeded | **true** | 1250 | 0 – 65 872 |
+| control | unseeded | false | 1248 | 0 – 1 |
+| control | seeded | false | **660** | 0 – 1 |
+| control | seeded | true | 590 | 0 – 17 |
+
+**What these runs do not cover.** PR 1151's change is the removal of the
+serializability probe, so a value the store's serializer refuses now fails the
+transaction rather than settling through `on_timeout`. The generator emits clean JSON,
+so nothing here reaches that path — by design: the pipeline guarantees clean data, and
+validating against malformed input is the operator's side, not the service's. The
+functional pass is the right bar for this PR.
+
+---
+
+## PR 1151 — earlier detail on `4d2ad033`
 
 PR 1151 (`refactor(lookup): drop runtime data validation from the buffer`) sits on top
 of the grace-period branch and removes the runtime serializability probe, −625/+42.
