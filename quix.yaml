@@ -72,6 +72,8 @@ deployments:
         cpu: 200
         memory: 300
     variables:
+      - name: PHASE
+        value: s7b
       - name: BASE_MS
         value: 1790082872305
       - name: RUN_ID
