@@ -157,3 +157,102 @@ architecture.md's noted deviation #5.
 passed with no deviation from spec. No production code was touched; only `ruff` was
 installed into the pre-existing `quix-streams-wt-pr994` venv (not this repo), and
 `__pycache__`/`.ruff_cache` artifacts were left in place since they are already gitignored.
+
+## Round 2 — partition-mode key fix
+
+**Scope:** verify ArchDev's one-function fix to `session-probe/main.py`'s `describe()` so it
+accepts `str` (key/current mode) or `bytes` (partition mode) keys and emits an identical
+record schema either way. Read-only; no git writes, no deployment.
+
+### Check 1 — `ruff check` / `ruff format --check`
+
+**PASS.**
+
+```
+python -m ruff check session-probe/main.py
+All checks passed!
+
+python -m ruff format --check session-probe/main.py
+1 file already formatted
+```
+
+### Check 2 — `py_compile`
+
+**PASS.** `python -m py_compile session-probe/main.py` — exit 0, no output.
+
+### Check 3 — behaviour: str key vs bytes key produce identical records
+
+**PASS.** With `PROBE=partition EMIT_MODE=final CLOSING_STRATEGY=partition GAP_MS=120000
+GRACE_MS=0 STORE_NAME=sess CONSUMER_GROUP=t LOGLEVEL=INFO` set before import, called
+`describe(value={"start": 1000, "end": 5001, "count": 3, "seqs": [0,1,2]}, timestamp=5000,
+headers=None)` once with `key="r2-s1"` and once with `key=b"r2-s1"`.
+
+```
+result a (str key)   = {'start': 1000, 'end': 5001, 'count': 3, 'seqs': [0, 1, 2],
+  'probe': 'partition', 'emit_mode': 'final', 'closing_strategy': 'partition',
+  'key': 'r2-s1', 'run_id': 'r2', 'scenario': 's1', 'span_seconds': 4.0}
+result b (bytes key)  = {'start': 1000, 'end': 5001, 'count': 3, 'seqs': [0, 1, 2],
+  'probe': 'partition', 'emit_mode': 'final', 'closing_strategy': 'partition',
+  'key': 'r2-s1', 'run_id': 'r2', 'scenario': 's1', 'span_seconds': 4.0}
+```
+
+Both assert `run_id == "r2"`, `scenario == "s1"`, `key == "r2-s1"`,
+`isinstance(result["key"], str)`, `span_seconds == 4.0`; `a == b` and `list(a) == list(b)`
+(identical key ordering) both hold.
+
+### Check 4 — regression on untouched paths
+
+**PASS.**
+- `key="r2-s5a"` → `scenario == "s5a"` (multi-char scenario name with digit+letter survives
+  the `partition("-")` split unchanged).
+- `key=b"r3-k007"` → `run_id == "r3"`, `scenario == "k007"` (v2 key shape, bytes path).
+
+### Check 5 — diff review
+
+**PASS — diff contains only the four expected edits**, verbatim:
+
+```diff
+diff --git a/session-probe/main.py b/session-probe/main.py
+index 0d3a6a5..64cabd2 100644
+--- a/session-probe/main.py
++++ b/session-probe/main.py
+@@ -59,8 +59,12 @@ def on_late(
+     return True
+
+
+-def describe(value: dict, key: str, timestamp: int, headers: Any) -> dict:
++def describe(value: dict, key: str | bytes, timestamp: int, headers: Any) -> dict:
+     """Stamp a window result with the probe and the scenario it belongs to."""
++    # Partition-mode expiry keys each result by the raw store prefix
++    # (windows/session.py:293-295), so the key is bytes there and str in key mode.
++    if isinstance(key, bytes):
++        key = key.decode()
+     run_id, _, scenario = key.partition("-")
+     return {
+         **value,
+```
+
+`on_late`, the aggregation selection, the window construction, startup logging and
+`to_topic` are confirmed byte-identical — nothing else in the diff.
+
+### Check 6 — tree hygiene
+
+**PASS.** `git status --short`:
+
+```
+ M dev-planning/session-windows-live/progress.md
+ M session-probe/README.md
+ M session-probe/main.py
+?? dev-planning/session-windows-live/spec-v2.md
+```
+
+Exactly the three expected modified files, nothing staged. `spec-v2.md` is an untracked
+file under `dev-planning/session-windows-live/`, which the brief names as an
+expected-and-ignorable concurrent-agent path — left untouched, not judged. No files under
+`session-generator-v2/` or `session-verdict/` were present at check time.
+
+### Round 2 verdict
+
+**ALL GREEN.** No bugs filed. `describe()` correctly normalizes `bytes` keys to `str` before
+`partition("-")`, both key-mode and partition-mode inputs yield equal, identically-ordered
+records, and the fix is minimal — no collateral changes.
