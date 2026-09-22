@@ -1,0 +1,230 @@
+name: session-generator-v2
+language: python
+variables:
+  - name: output
+    inputType: OutputTopic
+    description: >-
+      Topic the continuous run is produced to. Unlike phase 1 this one is
+      multi-partition (PARTITION_COUNT); the generator never passes partition= so the
+      mapping is librdkafka's murmur2, the real one a user gets.
+    defaultValue: session-v2-in
+    required: true
+  - name: RUN_ID
+    inputType: FreeText
+    description: >-
+      Prefixes every message key (r3-k000, r3-k007, ...) and is stamped in every
+      payload. MUST NOT CONTAIN A HYPHEN - session-probe splits the key on the first
+      one into run_id and scenario. Bump it for every fresh run, or a probe re-reading
+      the retained input topic mixes the old run's keys into the verdict.
+    defaultValue: r3
+    required: true
+  - name: KEY_COUNT
+    inputType: FreeText
+    description: >-
+      How many keys the run produces. Must exceed PARTITION_COUNT or no partition
+      carries several keys and the key-vs-partition contrast is vacuous; use
+      KEY_COUNT >= 4 * PARTITION_COUNT for a run whose verdict is meant to mean
+      something, because murmur2 over a handful of keys is lumpy.
+    defaultValue: "8"
+    required: true
+  - name: IDLE_KEY_COUNT
+    inputType: FreeText
+    description: >-
+      The last N key indices emit exactly one stream and receive no closer. Their
+      sessions never close on the key probe and do close on the partition probe, which
+      is the whole key-vs-partition contrast. 0 removes it entirely.
+    defaultValue: "1"
+    required: true
+  - name: EVENTS_PER_STREAM_MIN
+    inputType: FreeText
+    description: >-
+      Lower bound of the per-stream event count, drawn per stream from the key's own
+      RNG. 1 makes every stream a single-event session, which is legal but leaves
+      `count` with nothing to prove.
+    defaultValue: "3"
+    required: true
+  - name: EVENTS_PER_STREAM_MAX
+    inputType: FreeText
+    description: >-
+      Upper bound of the per-stream event count. Equal to the MIN gives fixed-length
+      streams and the exactly-derivable run of spec-v2 section 7.
+    defaultValue: "3"
+    required: true
+  - name: EVENT_INTERVAL_MS
+    inputType: FreeText
+    description: >-
+      Spacing between two events of one stream. Must be >= 1 and <= GAP_MS: at exactly
+      GAP_MS events still join by 1 ms (end + G = prev + 1 + G > prev + G), at
+      GAP_MS + 1 every event becomes its own session and the stream concept collapses.
+      0 produces duplicate timestamps within a key, which makes Earliest/Latest
+      tie-dependent.
+    defaultValue: "60000"
+    required: true
+  - name: GAP_MODE
+    inputType: FreeText
+    description: >-
+      fixed uses GAP_FIXED_MS for every silence; random draws each one from
+      [GAP_RANDOM_MIN_MS, GAP_RANDOM_MAX_MS] with the key's own RNG.
+    defaultValue: fixed
+    required: true
+  - name: GAP_FIXED_MS
+    inputType: FreeText
+    description: >-
+      The silence between two streams of one key in fixed mode. It splits the key into
+      two sessions exactly when GAP_FIXED_MS >= GAP_MS + 1; 150000 against
+      GAP_MS=120000 leaves 29999 ms of margin. Raising GAP_MS to 150000 would make the
+      same silence join instead and the whole scenario collapses into one session.
+    defaultValue: "150000"
+    required: true
+  - name: GAP_RANDOM_MIN_MS
+    inputType: FreeText
+    description: >-
+      Lower bound of the random silence. The range MUST STRADDLE GAP_MS - that is the
+      point of random mode. A range entirely above GAP_MS degenerates to fixed; a range
+      entirely below it makes every key one long session.
+    defaultValue: "60000"
+    required: true
+  - name: GAP_RANDOM_MAX_MS
+    inputType: FreeText
+    description: >-
+      Upper bound of the random silence. 60000-300000 around GAP_MS=120000 splits
+      roughly 60 percent of the gaps; the generator logs splits= and joins= so the
+      actual ratio is on the record.
+    defaultValue: "300000"
+    required: true
+  - name: STREAMS_PER_KEY
+    inputType: FreeText
+    description: >-
+      How many streams a non-idle key emits before it retires. Bounded, so the run
+      terminates, the closer phase can push every watermark past every open session and
+      the run can be judged.
+    defaultValue: "2"
+    required: true
+  - name: RUN_FOREVER
+    inputType: FreeText
+    description: >-
+      true ignores STREAMS_PER_KEY, never retires a key and emits no closers - soak
+      mode. Each key's earlier sessions still close as it keeps producing; its last one
+      stays open, which the oracle predicts correctly. Stop the generator before running
+      the verdict.
+    defaultValue: "false"
+    required: true
+  - name: KEY_STAGGER_MS
+    inputType: FreeText
+    description: >-
+      Key i's first event is at base_ms + i * KEY_STAGGER_MS. 0 synchronises every key
+      onto the same ticks - maximum determinism, and what the hand-derived run of
+      spec-v2 section 7 assumes. Non-zero de-synchronises them, so partition sweeps fire
+      at many distinct watermarks.
+    defaultValue: "0"
+    required: true
+  - name: SEED
+    inputType: FreeText
+    description: >-
+      RNG seed. Key i draws its stream lengths and gaps from Random(SEED + i); the
+      out-of-order and late selections come from Random(SEED + 991), so turning
+      injection on or off leaves the per-key schedule byte-identical. Same seed plus
+      same parameters plus SPEED=fast reproduces the whole event list.
+    defaultValue: "20260922"
+    required: true
+  - name: SPEED
+    inputType: FreeText
+    description: >-
+      fast produces the scheduled timestamps as quickly as PRODUCE_RATE_MS allows, so a
+      2.5-minute gap costs nothing and the timestamps run into the future. realtime
+      sleeps until the wall clock reaches each timestamp and ignores PRODUCE_RATE_MS -
+      one confirmation run that the rig behaves the same when event time equals wall
+      clock.
+    defaultValue: fast
+    required: true
+  - name: BASE_MS
+    inputType: FreeText
+    description: >-
+      Event-time origin in epoch milliseconds. BLANK IS THE V2 DEFAULT and means "now at
+      process start". v2 is one run, so there is nothing to keep aligned across runs, and
+      a pinned value plus a Service restart replays the whole run into the same band and
+      doubles every count. Blank makes a restart land in a disjoint band instead, where
+      the distinct instance_id count fails the run rather than corrupting it.
+    defaultValue: ""
+    required: false
+  - name: PRODUCE_RATE_MS
+    inputType: FreeText
+    description: >-
+      Sleep between scheduled produces, fast mode only. 0 saturates the broker from a
+      Service. Produced order is not load-bearing for the verdict - the oracle judges
+      whatever order landed - so a soak run may raise it freely.
+    defaultValue: "50"
+    required: true
+  - name: GAP_MS
+    inputType: FreeText
+    description: >-
+      Inactivity gap in milliseconds. MUST EQUAL every probe's GAP_MS and the verdict
+      Job's. The generator uses it only for the closer timestamp (max event + 3 * GAP_MS
+      + GRACE_MS) and for the split/no-split log line; the oracle uses it for everything.
+    defaultValue: "120000"
+    required: true
+  - name: GRACE_MS
+    inputType: FreeText
+    description: >-
+      Extra delay before closing, in milliseconds. MUST EQUAL the probes' and the verdict
+      Job's. It shifts the late bound and the close bound by the same constant and never
+      changes which session an event joins.
+    defaultValue: "0"
+    required: true
+  - name: PARTITION_COUNT
+    inputType: FreeText
+    description: >-
+      Declared partition count of the input topic. LOG LINE ONLY - the topics block in
+      quix.yaml is authoritative. The startup block prints the topic's real
+      broker_config.num_partitions next to this value, so a mismatch is visible before
+      the first event.
+    defaultValue: "2"
+    required: true
+  - name: OUT_OF_ORDER_PCT
+    inputType: FreeText
+    description: >-
+      Percentage of scheduled events held back by OUT_OF_ORDER_DELAY_MS. A held event
+      keeps its own event timestamp and is produced later in the stream, after events of
+      other keys, so it arrives out of order but still inside one gap of the watermark
+      and must JOIN a stored session. Without this the min-heap schedule is perfectly
+      ordered and R1's merge path is never exercised.
+    defaultValue: "15"
+    required: true
+  - name: OUT_OF_ORDER_DELAY_MS
+    inputType: FreeText
+    description: >-
+      How far, in event time, an out-of-order event is held back. MUST BE <= GAP_MS +
+      GRACE_MS: the event is released just before the first scheduled event reaching
+      event_ms + this delay, so the watermark then in force is strictly below it and the
+      event is admissible by construction. Above that bound it becomes a late drop
+      instead.
+    defaultValue: "90000"
+    required: true
+  - name: LATE_PCT
+    inputType: FreeText
+    description: >-
+      Percentage of scheduled events held back by LATE_DELAY_MS, i.e. events that must
+      be dropped by R2 and appear in the probes' on_late log lines and in the oracle's
+      predicted late drops. Mutually exclusive with the out-of-order selection - one draw
+      decides both.
+    defaultValue: "5"
+    required: true
+  - name: LATE_DELAY_MS
+    inputType: FreeText
+    description: >-
+      How far, in event time, a late event is held back. MUST BE > GAP_MS + GRACE_MS or
+      it joins instead of being dropped. 400000 against GAP_MS=120000 clears the bound by
+      280000 ms, which is more than any single step of the default schedule.
+    defaultValue: "400000"
+    required: true
+  - name: LOGLEVEL
+    inputType: FreeText
+    description: >-
+      Application logging level, also passed to logging.basicConfig so this module's own
+      INFO lines (the startup block, one line per produced event, the GAP and HOLD lines,
+      RUN COMPLETE) reach stdout - configure_logging only touches the quixstreams logger.
+    defaultValue: INFO
+    required: true
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

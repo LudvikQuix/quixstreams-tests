@@ -1,84 +1,24 @@
-# Quix Project Descriptor
-# This file describes the data pipeline and configuration of resources of a Quix Project.
+# Phase-2 blocks for quix.yaml. NOT a standalone descriptor: paste the five entries
+# under `deployments:` into the existing `deployments:` list and the five entries under
+# `topics:` into the existing `topics:` list. Indentation here is already the one
+# quix.yaml uses. Change nothing in the four phase-1 blocks.
+#
+# Deployment names are new to this workspace (deleting a deployment orphans its state
+# volume; a name collision re-attaches a stale one). Phase 1 owns `Session Probe Key`,
+# `Session Probe Partition`, `Session Probe Current` and `Session Generator`.
+#
+# The values below are the FIRST run: the hand-derived fixed 2.5-minute scenario of
+# spec-v2 section 7. Its 6 / 7 / 24 table only holds for a perfectly ordered stream, so
+# OUT_OF_ORDER_PCT and LATE_PCT are 0 here. The second run (spec-v2 section 10.9) turns
+# them on together with random gaps:
+#
+#   RUN_ID r4  SEED <fresh>  GAP_MODE random  GAP_RANDOM_MIN_MS 60000
+#   GAP_RANDOM_MAX_MS 300000  KEY_COUNT 8  STREAMS_PER_KEY 5  KEY_STAGGER_MS 7000
+#   OUT_OF_ORDER_PCT 15  OUT_OF_ORDER_DELAY_MS 90000  LATE_PCT 5  LATE_DELAY_MS 400000
+#
+# and the three probe CONSUMER_GROUPs plus the verdict CONSUMER_GROUP move with it.
 
-metadata:
-  version: 2.0
-
-# This section describes the Deployments of the data pipeline
 deployments:
-  - name: Session Probe Key
-    application: session-probe
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 200
-        memory: 500
-    state:
-      enabled: true
-      size: 1
-    desiredStatus: Running
-    variables:
-      - name: CONSUMER_GROUP
-        value: sw_key_r4
-  - name: Session Probe Partition
-    application: session-probe
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 200
-        memory: 500
-    state:
-      enabled: true
-      size: 1
-    desiredStatus: Running
-    variables:
-      - name: output
-        value: session-out-partition
-      - name: PROBE
-        value: partition
-      - name: CLOSING_STRATEGY
-        value: partition
-      - name: CONSUMER_GROUP
-        value: sw_part_r4
-  - name: Session Probe Current
-    application: session-probe
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 200
-        memory: 500
-    state:
-      enabled: true
-      size: 1
-    desiredStatus: Running
-    variables:
-      - name: output
-        value: session-out-current
-      - name: PROBE
-        value: current
-      - name: EMIT_MODE
-        value: current
-      - name: CONSUMER_GROUP
-        value: sw_curr_r4
-  - name: Session Generator
-    application: session-generator
-    version: latest
-    deploymentType: Job
-    resources:
-      limits:
-        cpu: 200
-        memory: 300
-    variables:
-      - name: PHASE
-        value: main
-      - name: BASE_MS
-        value: 1790082872305
-      - name: RUN_ID
-        value: r4
-
   - name: Session Generator V2
     application: session-generator-v2
     version: latest
@@ -281,12 +221,16 @@ deployments:
         value: sv2_r3
       - name: LOGLEVEL
         value: INFO
-# This section describes the Topics of the data pipeline
+
 topics:
+  # PARTITION_COUNT lives here, not in the generator: this block is authoritative and
+  # the generator only logs its declared value next to the topic's real one.
   - name: session-v2-in
     configuration:
       partitions: 2
       retentionInMinutes: 1440
+  # One partition on every output topic, so (partition, offset) is a total order and the
+  # current probe's per-key ordering assertion is exact and free.
   - name: session-v2-out-key
     configuration:
       partitions: 1
@@ -300,22 +244,6 @@ topics:
       partitions: 1
       retentionInMinutes: 1440
   - name: session-v2-verdict
-    configuration:
-      partitions: 1
-      retentionInMinutes: 1440
-  - name: session-in
-    configuration:
-      partitions: 1
-      retentionInMinutes: 1440
-  - name: session-out-key
-    configuration:
-      partitions: 1
-      retentionInMinutes: 1440
-  - name: session-out-partition
-    configuration:
-      partitions: 1
-      retentionInMinutes: 1440
-  - name: session-out-current
     configuration:
       partitions: 1
       retentionInMinutes: 1440

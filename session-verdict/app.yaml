@@ -1,0 +1,98 @@
+name: session-verdict
+language: python
+variables:
+  - name: input
+    inputType: InputTopic
+    description: >-
+      The v2 input topic. This is the oracle's data source, and it is deliberately not
+      the generator's manifest: reading the topic verifies what actually landed, carries
+      the real partition per record so nothing has to reimplement murmur2, and makes the
+      expectation independent of SEED, GAP_MODE, KEY_COUNT and STREAMS_PER_KEY - a
+      generator bug cannot hide itself inside the expectation.
+    defaultValue: session-v2-in
+    required: true
+  - name: key_input
+    inputType: InputTopic
+    description: >-
+      Output of the .final(closing_strategy="key") probe.
+    defaultValue: session-v2-out-key
+    required: true
+  - name: partition_input
+    inputType: InputTopic
+    description: >-
+      Output of the .final(closing_strategy="partition") probe. Judged against a second
+      oracle run whose watermark and sweep scope are per partition, not global.
+    defaultValue: session-v2-out-partition
+    required: true
+  - name: current_input
+    inputType: InputTopic
+    description: >-
+      Output of the .current(closing_strategy="key") probe. Compared as an ORDERED list
+      per key - a merge announces a session and the next update supersedes it with an
+      earlier start, which is only evidence if the order is asserted.
+    defaultValue: session-v2-out-current
+    required: true
+  - name: output
+    inputType: OutputTopic
+    description: >-
+      Verdict topic. One record per (probe, key) plus one summary record, produced with
+      app.get_producer() after app.run() returns.
+    defaultValue: session-v2-verdict
+    required: true
+  - name: RUN_ID
+    inputType: FreeText
+    description: >-
+      Records of any other run are counted in the per-topic read counts and then ignored,
+      on all four topics. Must match the generator's and be bumped with it.
+    defaultValue: r3
+    required: true
+  - name: GAP_MS
+    inputType: FreeText
+    description: >-
+      The oracle's only physical constant besides GRACE_MS. MUST EQUAL the three probes'
+      GAP_MS: an event is late below watermark - GAP_MS - GRACE_MS and a session closes
+      at end <= watermark - 2*GAP_MS - GRACE_MS. A mismatch makes every expectation wrong
+      in a way that looks exactly like an SDK bug.
+    defaultValue: "120000"
+    required: true
+  - name: GRACE_MS
+    inputType: FreeText
+    description: >-
+      Grace period. MUST EQUAL the three probes' GRACE_MS. It shifts both bounds by the
+      same constant.
+    defaultValue: "0"
+    required: true
+  - name: IDLE_TIMEOUT_S
+    inputType: FreeText
+    description: >-
+      Idle timeout for app.run() across all four topics at once: the call returns once
+      nothing has arrived on any of them for this long. RunTracker gives the timeout a
+      60 s head start, so the Job prints nothing for roughly IDLE_TIMEOUT_S + 60 seconds
+      and then prints everything.
+    defaultValue: "60"
+    required: true
+  - name: MAX_RECORDS
+    inputType: FreeText
+    description: >-
+      Cap on collected records, passed as app.run(count=...). The collect-mode run holds
+      every record in memory; the per-topic read counts in the header make a truncated
+      read obvious rather than silent.
+    defaultValue: "200000"
+    required: true
+  - name: CONSUMER_GROUP
+    inputType: FreeText
+    description: >-
+      Kafka consumer group. FRESH PER RUN, or the Job resumes from its committed offsets
+      and reads nothing, which reports every expected record as MISSING.
+    defaultValue: sv2_r3
+    required: true
+  - name: LOGLEVEL
+    inputType: FreeText
+    description: >-
+      Application logging level, also passed to logging.basicConfig so this module's
+      startup block reaches stdout. The verdict itself is printed, not logged.
+    defaultValue: INFO
+    required: true
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py
