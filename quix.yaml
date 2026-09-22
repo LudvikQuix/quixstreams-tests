@@ -17,7 +17,7 @@ deployments:
     state:
       enabled: true
       size: 1
-    desiredStatus: Running
+    desiredStatus: Stopped
     variables:
       - name: CONSUMER_GROUP
         value: sw_key_r3
