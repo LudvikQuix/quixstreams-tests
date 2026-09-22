@@ -92,3 +92,4 @@ topics:
       retentionInMinutes: 1440
   - name: sensor-data
   - name: config-updates
+  - name: enriched-sensor-data
