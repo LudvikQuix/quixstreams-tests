@@ -38,7 +38,7 @@ deployments:
       - name: CLOSING_STRATEGY
         value: partition
       - name: CONSUMER_GROUP
-        value: sw_part_r1
+        value: sw_part_r2
   - name: Session Probe Current
     application: session-probe
     version: latest
@@ -59,7 +59,7 @@ deployments:
       - name: EMIT_MODE
         value: current
       - name: CONSUMER_GROUP
-        value: sw_curr_r1
+        value: sw_curr_r2
   - name: Session Generator
     application: session-generator
     version: latest
@@ -70,7 +70,7 @@ deployments:
         memory: 300
     variables:
       - name: BASE_MS
-        value: 1790079119719
+        value: 1790080814526
 
 # This section describes the Topics of the data pipeline
 topics:
