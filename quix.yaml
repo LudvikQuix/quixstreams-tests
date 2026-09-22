@@ -78,7 +78,6 @@ deployments:
         value: 1790082872305
       - name: RUN_ID
         value: r4
-
   - name: Session Generator V2
     application: session-generator-v2
     version: latest
@@ -87,67 +86,14 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-    # Started by the operator only after the three V2 probes are Running and their
-    # state-dir lines are verified. A Stopped deployment is also the one a
-    # PATCH /deployments/{id} with {"variables": {...}} is accepted on.
-    desiredStatus: Stopped
+    desiredStatus: Running
     variables:
-      - name: output
-        value: session-v2-in
-      - name: RUN_ID
-        value: r3
       - name: KEY_COUNT
         value: 4
-      - name: IDLE_KEY_COUNT
-        value: 1
-      - name: EVENTS_PER_STREAM_MIN
-        value: 3
-      - name: EVENTS_PER_STREAM_MAX
-        value: 3
-      - name: EVENT_INTERVAL_MS
-        value: 60000
-      - name: GAP_MODE
-        value: fixed
-      - name: GAP_FIXED_MS
-        value: 150000
-      - name: GAP_RANDOM_MIN_MS
-        value: 60000
-      - name: GAP_RANDOM_MAX_MS
-        value: 300000
-      - name: STREAMS_PER_KEY
-        value: 2
-      - name: RUN_FOREVER
-        value: "false"
-      - name: KEY_STAGGER_MS
-        value: 0
-      - name: SEED
-        value: 20260922
-      - name: SPEED
-        value: fast
-      # Blank on a Service: a pinned value plus a platform restart replays the whole
-      # run into the same event-time band and doubles every count.
-      - name: BASE_MS
-        value: ""
-      - name: PRODUCE_RATE_MS
-        value: 50
-      - name: GAP_MS
-        value: 120000
-      - name: GRACE_MS
-        value: 0
-      - name: PARTITION_COUNT
-        value: 2
-      # 0 for the section 7 run only - its hand-derived table assumes a perfectly
-      # ordered stream. Run 2 uses 15 / 90000 / 5 / 400000.
       - name: OUT_OF_ORDER_PCT
         value: 0
-      - name: OUT_OF_ORDER_DELAY_MS
-        value: 90000
       - name: LATE_PCT
         value: 0
-      - name: LATE_DELAY_MS
-        value: 400000
-      - name: LOGLEVEL
-        value: INFO
   - name: Session Probe Key V2
     application: session-probe
     version: latest
@@ -165,22 +111,8 @@ deployments:
         value: session-v2-in
       - name: output
         value: session-v2-out-key
-      - name: PROBE
-        value: key
-      - name: EMIT_MODE
-        value: final
-      - name: CLOSING_STRATEGY
-        value: key
-      - name: GAP_MS
-        value: 120000
-      - name: GRACE_MS
-        value: 0
-      - name: STORE_NAME
-        value: sess
       - name: CONSUMER_GROUP
         value: sw2_key_r3
-      - name: LOGLEVEL
-        value: INFO
   - name: Session Probe Partition V2
     application: session-probe
     version: latest
@@ -200,20 +132,10 @@ deployments:
         value: session-v2-out-partition
       - name: PROBE
         value: partition
-      - name: EMIT_MODE
-        value: final
       - name: CLOSING_STRATEGY
         value: partition
-      - name: GAP_MS
-        value: 120000
-      - name: GRACE_MS
-        value: 0
-      - name: STORE_NAME
-        value: sess
       - name: CONSUMER_GROUP
         value: sw2_part_r3
-      - name: LOGLEVEL
-        value: INFO
   - name: Session Probe Current V2
     application: session-probe
     version: latest
@@ -235,18 +157,8 @@ deployments:
         value: current
       - name: EMIT_MODE
         value: current
-      - name: CLOSING_STRATEGY
-        value: key
-      - name: GAP_MS
-        value: 120000
-      - name: GRACE_MS
-        value: 0
-      - name: STORE_NAME
-        value: sess
       - name: CONSUMER_GROUP
         value: sw2_curr_r3
-      - name: LOGLEVEL
-        value: INFO
   - name: Session Verdict V2
     application: session-verdict
     version: latest
@@ -255,32 +167,7 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-    variables:
-      - name: input
-        value: session-v2-in
-      - name: key_input
-        value: session-v2-out-key
-      - name: partition_input
-        value: session-v2-out-partition
-      - name: current_input
-        value: session-v2-out-current
-      - name: output
-        value: session-v2-verdict
-      - name: RUN_ID
-        value: r3
-      - name: GAP_MS
-        value: 120000
-      - name: GRACE_MS
-        value: 0
-      - name: IDLE_TIMEOUT_S
-        value: 60
-      - name: MAX_RECORDS
-        value: 200000
-      # Fresh per run, or the Job resumes from its committed offsets and reads nothing.
-      - name: CONSUMER_GROUP
-        value: sv2_r3
-      - name: LOGLEVEL
-        value: INFO
+
 # This section describes the Topics of the data pipeline
 topics:
   - name: session-v2-in
