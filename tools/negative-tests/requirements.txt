@@ -1,1 +1,0 @@
-quixstreams @ git+https://github.com/quixio/quix-streams.git@579231eec4f56438235f656b23fae28153629459

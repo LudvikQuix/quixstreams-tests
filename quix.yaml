@@ -6,68 +6,107 @@ metadata:
 
 # This section describes the Deployments of the data pipeline
 deployments:
-  - name: MongoDB
-    application: mongodb
+  - name: Session Probe Key
+    application: session-probe
     version: latest
     deploymentType: Service
     resources:
       limits:
         cpu: 200
-        memory: 800
+        memory: 500
     state:
       enabled: true
       size: 1
     desiredStatus: Running
-    network:
-      serviceName: mongodb
-      ports:
-        - port: 27017
-          targetPort: 27017
-  - name: Dynamic Configuration Manager
-    application: DynamicConfiguration
-    version: latest
-    deploymentType: Managed
-    resources:
-      limits:
-        cpu: 500
-        memory: 1000
-    publicAccess:
-      enabled: true
-      urlPrefix: config-api-svc
-    network:
-      serviceName: config-api-svc
-    configuration:
-      topic: config-updates
-      mongoHost: mongodb
-      mongoPort: 27017
-      mongoUser: admin
-      mongoPasswordSecret: mongo_password
-      mongoDatabase: dcm
-      mongoCollection: configurations
-    plugin:
-      embeddedView:
-        enabled: true
-        default: true
-  - name: Data Generator
-    application: data-generator
+    variables:
+      - name: input
+        value: session-in
+      - name: output
+        value: session-out-key
+      - name: PROBE
+        value: key
+      - name: EMIT_MODE
+        value: final
+      - name: CLOSING_STRATEGY
+        value: key
+      - name: GAP_MS
+        value: 120000
+      - name: GRACE_MS
+        value: 0
+      - name: STORE_NAME
+        value: sess
+      - name: CONSUMER_GROUP
+        value: sw_key_r1
+      - name: LOGLEVEL
+        value: INFO
+  - name: Session Probe Partition
+    application: session-probe
     version: latest
     deploymentType: Service
     resources:
       limits:
         cpu: 200
-        memory: 300
-    desiredStatus: Stopped
+        memory: 500
+    state:
+      enabled: true
+      size: 1
+    desiredStatus: Running
     variables:
-      - name: DEVICE_COUNT
-        value: 10
-      - name: SEEDED_DEVICE_COUNT
-        value: 5
-      - name: RUN_ID
-        value: r25
-      - name: LOG_EVERY
-        value: 50
-  - name: Config Seeder
-    application: config-seeder
+      - name: input
+        value: session-in
+      - name: output
+        value: session-out-partition
+      - name: PROBE
+        value: partition
+      - name: EMIT_MODE
+        value: final
+      - name: CLOSING_STRATEGY
+        value: partition
+      - name: GAP_MS
+        value: 120000
+      - name: GRACE_MS
+        value: 0
+      - name: STORE_NAME
+        value: sess
+      - name: CONSUMER_GROUP
+        value: sw_part_r1
+      - name: LOGLEVEL
+        value: INFO
+  - name: Session Probe Current
+    application: session-probe
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 500
+    state:
+      enabled: true
+      size: 1
+    desiredStatus: Running
+    variables:
+      - name: input
+        value: session-in
+      - name: output
+        value: session-out-current
+      - name: PROBE
+        value: current
+      - name: EMIT_MODE
+        value: current
+      - name: CLOSING_STRATEGY
+        value: key
+      - name: GAP_MS
+        value: 120000
+      - name: GRACE_MS
+        value: 0
+      - name: STORE_NAME
+        value: sess
+      - name: CONSUMER_GROUP
+        value: sw_curr_r1
+      - name: LOGLEVEL
+        value: INFO
+  - name: Session Generator
+    application: session-generator
     version: latest
     deploymentType: Job
     resources:
@@ -75,89 +114,35 @@ deployments:
         cpu: 200
         memory: 300
     variables:
-      - name: SEED_DELAY_SECONDS
-        value: 20
-      - name: DEVICE_COUNT
-        value: 10
-      - name: SEEDED_DEVICE_COUNT
-        value: 5
-      - name: CONFIG_TYPE
-        value: device_r25
+      - name: output
+        value: session-in
+      # s7a on creation: a newly created Job runs once immediately. The operator
+      # PATCHes this to s7b (after restarting the probes) and then to main.
+      - name: PHASE
+        value: s7a
+      # Set by the operator before the first sync - runbook step 1 - and kept
+      # IDENTICAL across all three phase runs. Blank means "use now", which is only
+      # valid for a single-phase run.
+      - name: BASE_MS
+        value: 1790079119719
       - name: RUN_ID
-        value: r25
-  - name: Lookup Sink - Buffered
-    application: lookup-sink
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 500
-        memory: 1000
-    state:
-      enabled: true
-      size: 1
-    desiredStatus: Running
-    variables:
-      - name: GRACE_MS
-        value: 120000
-      - name: CONFIG_TYPE
-        value: device_r25
-      - name: SEEDED_DEVICE_COUNT
-        value: 5
-      - name: CONSUMER_GROUP
-        value: pr1110_buffered_r25
-  - name: Lookup Sink - Control
-    application: lookup-sink
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 300
-        memory: 500
-    desiredStatus: Running
-    variables:
-      - name: ARM
-        value: control
-      - name: BUFFER_ENABLED
-        value: ''
-      - name: GRACE_MS
-        value: 120000
-      - name: CONFIG_TYPE
-        value: device_r25
-      - name: SEEDED_DEVICE_COUNT
-        value: 5
-      - name: CONSUMER_GROUP
-        value: pr1110_control_r25
-  - name: Lake Sink
-    application: lake-sink
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 500
-        memory: 1000
-    desiredStatus: Running
-    variables:
-      - name: TABLE_VERSION
-        value: v4
-      - name: BATCH_SIZE
-        value: 100
-      - name: COMMIT_INTERVAL
-        value: 10
-    blobStorage:
-      bind: true
+        value: r1
 
 # This section describes the Topics of the data pipeline
 topics:
-  - name: sensor-data
-    configuration:
-      partitions: 4
-      retentionInMinutes: 1440
-  - name: config-updates
+  - name: session-in
     configuration:
       partitions: 1
-      retentionInMinutes: 43200
-  - name: enriched-sensor-data
+      retentionInMinutes: 1440
+  - name: session-out-key
     configuration:
-      partitions: 4
+      partitions: 1
+      retentionInMinutes: 1440
+  - name: session-out-partition
+    configuration:
+      partitions: 1
+      retentionInMinutes: 1440
+  - name: session-out-current
+    configuration:
+      partitions: 1
       retentionInMinutes: 1440

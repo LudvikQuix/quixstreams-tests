@@ -1,0 +1,44 @@
+name: session-generator
+language: python
+variables:
+  - name: output
+    inputType: OutputTopic
+    description: >-
+      Topic the scripted event table is produced to. One partition: the emit-order proof
+      is only valid on a single total order, and closing_strategy="partition" needs one
+      watermark.
+    defaultValue: session-in
+    required: true
+  - name: PHASE
+    inputType: FreeText
+    description: >-
+      Which slice of the 49-row table to emit: s7a (rows 1-5), s7b (rows 6-11) or main
+      (rows 12-49). A newly created Job runs once on creation, so the value committed to
+      quix.yaml must be s7a; the operator PATCHes it to s7b and then main between runs.
+      The three phases are three separate runs of this same Job.
+    defaultValue: s7a
+    required: true
+  - name: BASE_MS
+    inputType: FreeText
+    description: >-
+      Event-time origin in epoch milliseconds; every row's timestamp is BASE_MS plus its
+      table offset. MUST BE IDENTICAL ON ALL THREE RUNS - s7a and s7b are minutes apart in
+      wall clock but their events must be 60 s apart in event time, or the s7 session
+      splits in two and the restart test proves nothing. Blank means "use now", logged at
+      WARNING, and is only valid for a single-phase run. On a rerun take a fresh value at
+      least 2100000 ms above the previous one.
+    defaultValue: ""
+    required: false
+  - name: RUN_ID
+    inputType: FreeText
+    description: >-
+      Prefixes every message key (r1-s1, r1-s7, ...) and is stamped in every payload. Bump
+      it for every fresh run: it makes the new run's keys disjoint from the retained input
+      topic's old rows, so a probe re-reading the topic from the beginning cannot
+      contaminate the verdict. Must not contain a hyphen - the collector splits the key on
+      the first one.
+    defaultValue: r1
+    required: true
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

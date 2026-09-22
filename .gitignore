@@ -7,6 +7,10 @@ __pycache__/
 venv/
 state/
 *.log
+.ruff_cache/
+
+# collector output, one directory per run id
+dev-planning/session-windows-live/results/
 
 # scratch
 .tmp/

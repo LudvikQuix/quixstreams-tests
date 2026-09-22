@@ -1,0 +1,91 @@
+name: session-probe
+language: python
+variables:
+  - name: input
+    inputType: InputTopic
+    description: >-
+      The scripted event topic. All three deployments read the same one; that is what
+      makes the key-vs-partition contrast a paired comparison instead of two runs.
+    defaultValue: session-in
+    required: true
+  - name: output
+    inputType: OutputTopic
+    description: >-
+      Window results, one topic per probe. The collector reads all three and asserts each
+      against its own expectation set, so two probes must never share a topic.
+    defaultValue: session-out-key
+    required: true
+  - name: PROBE
+    inputType: FreeText
+    description: >-
+      Label stamped on every emitted record (key | partition | current). The collector
+      groups records by this field, not by topic, so it must be unique per deployment.
+    defaultValue: key
+    required: true
+  - name: EMIT_MODE
+    inputType: FreeText
+    description: >-
+      final emits a session once, when it closes; current emits an update per event.
+      It also selects the aggregations, because `current` windows raise InvalidOperation
+      on collectors (windows/base.py:170): final uses Count + Collect("seq"), current
+      uses Count + Earliest("seq") + Latest("seq").
+    defaultValue: final
+    required: true
+  - name: CLOSING_STRATEGY
+    inputType: FreeText
+    description: >-
+      key gives every message key its own watermark, so a key that goes silent never has
+      its last session emitted; partition shares one watermark across all keys, so other
+      keys' traffic closes an idle key's session. The single record that differs between
+      the two probes - r1-s5a, present on partition and absent on key - is the whole of
+      scenario S5.
+    defaultValue: key
+    required: true
+  - name: GAP_MS
+    inputType: FreeText
+    description: >-
+      Inactivity gap in milliseconds. MUST equal session-generator's GAP_MS: the event
+      table places its events at half a gap, its closers at three gaps, and every
+      expected (start, end, count) in the spec is derived from this number. An event is
+      late below watermark - GAP_MS - GRACE_MS and a session closes at
+      end <= watermark - 2*GAP_MS - GRACE_MS.
+    defaultValue: "120000"
+    required: true
+  - name: GRACE_MS
+    inputType: FreeText
+    description: >-
+      Extra delay before closing, in milliseconds. 0 on all three probes: grace shifts
+      the late bound and the close bound by the same constant and never changes which
+      session an event joins, so it is left to the unit tests. A non-zero value here
+      invalidates every expectation in the collector.
+    defaultValue: "0"
+    required: true
+  - name: STORE_NAME
+    inputType: FreeText
+    description: >-
+      Name of the RocksDB store holding the sessions, and of its changelog topic. Bump it
+      to force a clean store without touching the consumer group.
+    defaultValue: sess
+    required: true
+  - name: CONSUMER_GROUP
+    inputType: FreeText
+    description: >-
+      Kafka consumer group. MUST DIFFER BETWEEN THE THREE PROBES, or they split the one
+      partition between them instead of each seeing every record. It also roots the state
+      directory (StateStoreManager stores under state_dir / consumer_group), so bumping it
+      in step with the generator's RUN_ID is what gives a rerun a fresh store and a fresh
+      changelog.
+    defaultValue: sw_key_r1
+    required: true
+  - name: LOGLEVEL
+    inputType: FreeText
+    description: >-
+      Application logging level. The startup block (quixstreams version, resolved
+      state_dir, the platform state variables, the resolved topic names) and the LATE
+      lines are INFO and WARNING, so INFO is enough for every piece of log evidence the
+      runbook reads.
+    defaultValue: INFO
+    required: true
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

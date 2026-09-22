@@ -1,11 +1,11 @@
-FROM python:3.13-slim-bookworm
+FROM python:3.13-slim-trixie
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8
 
-# requirements.txt pins quixstreams to a git SHA (PR #1110, unreleased), so pip needs a
-# git client. Not needed by the upstream samples, which install quixstreams from PyPI.
+# requirements.txt pins quixstreams to a git SHA (branch fix/pr-994, unreleased), so
+# pip needs a git client.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git \
  && rm -rf /var/lib/apt/lists/*

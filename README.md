@@ -1,211 +1,165 @@
-# PR1110 `LookupBuffer` grace-period test rig
+# Session windows on a live Quix deployment
 
-A Quix Cloud pipeline that deliberately delivers configuration **after** the data it
-applies to, and proves by observation that quix-streams PR
-[#1110](https://github.com/quixio/quix-streams/pull/1110) changes the outcome: records
-that today's library would have emitted immediately with their `default=` values are
-instead withheld, and — if their configuration lands within `grace_ms` of real time —
-emitted **enriched**.
+A Quix Cloud pipeline that proves, on a real deployment with a real RocksDB state volume
+and a real mid-run restart, that `sdf.session_window()` behaves exactly as its docstring
+and `docs/windowing.md` claim — by producing a scripted, arithmetically derived event
+table into a one-partition topic and asserting the **exact** `(start, end, count, seqs)`
+of every emitted session against a locally-run verdict table.
 
-Pinned at SHA `6632b46cdb2d493e4facf6c00b78c608ae70af87`. Full design:
-[`dev-planning/pr1110-grace-period/spec.md`](dev-planning/pr1110-grace-period/spec.md).
+The rig is falsifiable in both directions: every expected record must appear **exactly
+once**, and no record beyond the expected set may appear.
+
+Pinned at quix-streams `fix/pr-994`, SHA
+[`74275f72ddd54ea6698c7acb8bff1e5663ec2c75`](https://github.com/quixio/quix-streams/commit/74275f72ddd54ea6698c7acb8bff1e5663ec2c75).
+Full design: [`dev-planning/session-windows-live/spec.md`](dev-planning/session-windows-live/spec.md).
 Implementation notes and deviations:
-[`dev-planning/pr1110-grace-period/architecture.md`](dev-planning/pr1110-grace-period/architecture.md).
+[`dev-planning/session-windows-live/architecture.md`](dev-planning/session-windows-live/architecture.md).
 
 ## What it proves
 
-Two arms of the *same* application run simultaneously over the *same* input topic, so the
-before/after is a paired row-level comparison rather than two runs an operator has to
-trust are comparable:
+Three rules, quoted from `quixstreams/dataframe/windows/session.py`, with `G = gap`,
+`g = grace`, `W = watermark`:
 
-- **buffered** — `BUFFER_ENABLED=true`, `state: {enabled: true}`
-- **control** — `BUFFER_ENABLED=` (blank ⇒ `buffer=None`, today's behaviour exactly)
+| # | rule |
+|---|---|
+| R1 | **Join.** An event joins a stored session `[start, end)` iff `start - G <= ts` and `end + G > ts`. Matching two sessions merges them into `[min(start, ts), max(end, ts+1))`. |
+| R2 | **Late.** An event is dropped iff `ts < W - G - g`. `W` is the max event timestamp seen for the key (`closing_strategy="key"`) or for the partition (`"partition"`). |
+| R3 | **Close.** A session closes iff `end <= W - 2G - g`. |
 
-The generator cycles `device-000 … device-099`; the seeder configures only
-`device-000 … device-049`. One knob, one wall-clock window, three outcomes at once:
-
-| outcome | arm | devices | signature |
-|---|---|---|---|
-| **A** buffered, then resolved | `buffered` | `000`–`049`, pre-seed records | `resolved=true AND dwell_ms>=1000 AND threshold IS NOT NULL AND region<>'unknown'` |
-| **B** buffered, then timed out | `buffered` | `050`–`099` | `resolved=false AND dwell_ms>=300000 AND threshold IS NULL AND region='unknown'` |
-| **C** control, no buffer | `control` | all | `dwell_ms < 100` on **every** row |
-
-Supporting baseline **A0** (`buffered`, `000`–`049`, post-seed, `dwell_ms < 100`) exists
-to separate "the buffer did not work" from "the configuration never reached this consumer
-at all". If A0 is empty, the problem is delivery, not the buffer.
-
-**The falsifiable claim:** for the `(run_id, device_id, seq)` triples where
-`device_id < 'device-050'` and `ingest_ms < seed_ms`, the control arm emits
-`resolved=false, threshold=NULL, dwell_ms≈0` while the buffered arm emits
-`resolved=true, threshold=<the seeded value>, dwell_ms>1000` — **for the same triple**.
+`end` is `last_event + 1`, so a session whose last event is at `t` closes only once
+`W >= t + 1 + 2G + g` — one millisecond later than a naive `t + 2G + g`. Two steps of the
+event table sit exactly on that 1 ms.
 
 ## Pipeline
 
 ```
-                              ┌──────────────┐
-                              │  mongodb     │  Service, state 1 GB
-                              │  :27017      │  serviceName: mongodb
-                              └──────┬───────┘
-                                     │ variable group "mongodb-connection"
-                                     ▼
-  ┌───────────────┐   POST    ┌──────────────────────────┐  events   ┌───────────────┐
-  │ config-seeder │──────────▶│ Dynamic Config Manager   │──────────▶│ config-updates│
-  │ Job, sleeps   │  /api/v1/ │ Managed, contentStore=   │           │  1 partition  │
-  │ 120 s first   │  configs  │ mongo, port 80           │           └───────┬───────┘
-  └───────────────┘           │ serviceName config-api-svc│                  │
-                              └──────────────────────────┘                   │
-  ┌────────────────┐  keyed JSON   ┌──────────────┐                          │
-  │ data-generator │──────────────▶│ sensor-data  │                          │
-  │ Service,       │  key=device_id│ 4 partitions │                          │
-  │ 100 devices    │               └──────┬───────┘                          │
-  │ 20 msg/s       │          ┌───────────┴────────────┐                     │
-  └────────────────┘          ▼                        ▼                     │
-              ┌───────────────────────────┐  ┌──────────────────────┐        │
-              │ Lookup Sink - Buffered    │  │ Lookup Sink - Control│◀───────┤
-              │ BUFFER_ENABLED=true       │  │ BUFFER_ENABLED=      │◀───────┘
-              │ state: enabled            │  │ (no state block)     │
-              └──────────────┬────────────┘  └──────────┬───────────┘
-                             └────────────┬─────────────┘
-                                          ▼
-                              ┌───────────────────────────┐
-                              │  enriched-sensor-data     │
-                              └────────────┬──────────────┘
-                                           ▼
-                              ┌───────────────────────────┐
-                              │ Lake Sink                 │  blobStorage.bind: true
-                              │ QuixTSDataLakeSink        │  table pr1110_grace_v1
-                              └───────────────────────────┘
+                  Session Generator (Job, 3 runs: PHASE=s7a | s7b | main)
+                                    │  Source subclass, scripted event table
+                                    ▼
+                          session-in   (1 partition)
+              ┌───────────────────────┼───────────────────────┐
+              ▼                       ▼                       ▼
+   Session Probe Key        Session Probe Partition   Session Probe Current
+   .final("key")            .final("partition")       .current("key")
+   state 1 GiB              state 1 GiB               state 1 GiB
+   Count + Collect          Count + Collect           Count + Earliest + Latest
+              │                       │                       │
+              ▼                       ▼                       ▼
+     session-out-key        session-out-partition    session-out-current
+              └───────────────────────┼───────────────────────┘
+                                      ▼
+                  tools/collect_results.py  (run locally by the operator)
+                        JSONL per probe + verdict table + exit code
 ```
 
-## How to run it
+All three probes are **one application directory** (`session-probe/`) deployed three
+times; they differ only by variables. That is what makes the key-vs-partition contrast a
+paired comparison rather than two runs an operator has to trust are comparable.
 
-1. **Create the `mongodb-connection` variable group** and assign it to the workspace.
-   `mongoConnectionGroup` on the DCM is required with no default, so nothing else can
-   deploy until this exists. Members: `MONGO_HOST=mongodb`, `MONGO_PORT=27017`,
-   `MONGO_USER=admin`, `MONGO_PASSWORD=mongo_password` (secret). The user and password
-   must match the MongoDB deployment's `MONGO_INITDB_ROOT_*` values.
-2. **Paste the PAT** into `Quix__Pat__Token` in `.env` (gitignored).
-3. **Commit and push.** Quix builds from the pushed repo; local edits do nothing.
-   `quix.yaml` must be in the same commit as the app directories, or the sync is rejected
-   with "Reference should have affected the workspace descriptor".
-4. **`POST /workspaces/{ws}/pull`, then sync.** Without the pull, the sync compares the
-   old commit to itself and no-ops.
-5. **Bring up MongoDB first and wait for Running** — `serviceName: mongodb` must resolve
-   before the DCM's first connection attempt. Then the DCM; confirm its UI lists zero
-   configurations.
-6. **Start `Lookup Sink - Buffered`, `Lookup Sink - Control` and `Lake Sink`, and wait for
-   all three to be Running.** They must be consuming before any data exists, and
-   certainly before the seeder fires. If a sink starts *after* the seed, every record
-   resolves on the first attempt and nothing buffers.
-7. **Start `Data Generator`** (it ships `desiredStatus: Stopped` so this moment is under
-   your control) and **run the `Config Seeder` Job**. Note the wall-clock minute: this is
-   T+0. The generator produces immediately into a world with no configuration; the seeder
-   sleeps 120 s, then seeds.
-   *The Job auto-runs the first time it is created, so it may already have fired and
-   failed while MongoDB and the DCM were still building. Restart it from the Portal —
-   `replace: true` makes it idempotent.*
-8. **Watch the seeder log for the readback assertion.** Two `MATCH` lines mean the
-   backdated `valid_from` was stored. A `MISMATCH` exits non-zero — stop, apply the
-   escape hatch (`TIMESTAMP_SKEW_MS=300000` on the generator, `TIMESTAMP_COLUMN=produced_ms`
-   on the lake sink), bump `RUN_ID` and all three consumer groups, and restart from step 7.
-9. **Let it run 10 minutes past T+0**, then verify. Stop the generator only when finished
-   — stopping it earlier freezes every still-buffered record in place.
+## Scenarios
 
-### Timeline
+All times are offsets from `BASE_MS`; `M = 1200000`, `G = 120000`, `grace = 0`.
 
-```
-T+0       Generator starts. No configuration exists anywhere.
-T+0..120  Pre-seed window. buffered withholds everything; control emits defaults.
-T+120     Seeder POSTs 50 configs with valid_from = T-24h, reads two back, asserts.
-T+120..125 Each seeded device's next record releases its whole withheld queue ENRICHED.
-                                                              ==> OUTCOME A
-T+120..   Seeded devices now resolve on the first attempt, dwell ~0.   ==> A0
-T+300..   Unseeded devices reach grace_ms; the sweep settles them with defaults.
-                                                              ==> OUTCOME B
-T+600     ≥5 min of steady state in all three outcomes. Run the queries.
-```
+| scenario | key | probe | expected `(start, end, count)` |
+|---|---|---|---|
+| S1 continuous activity does not fragment | `r1-s1` | key / partition | `(1200000, 1740001, 10)` |
+| | | current | 10 updates, `start=1200000`, `end` 1200001→1740001, count 1→10 |
+| S2 in-gap out-of-order event joins | `r1-s2` | key / partition | `(1200000, 1320001, 4)` seqs `[0,1,3,2]` |
+| | | current | `(1200000,1200001,1) (…,1260001,2) (…,1320001,3) (…,1320001,4)` |
+| S3 bridging event merges two sessions | `r1-s3` | key / partition | `(1200000, 1400001, 4)` seqs `[0,1,3,2]` |
+| | | current | `(1200000,1200001,1) (…,1260001,2) (1400000,1400001,1) (1200000,1400001,4)` |
+| S4 late event dropped, never resurrects | `r1-s4` | key / partition | `(1200000, 1260001, 2)` + one `on_late`, no record at 1230000 |
+| | | current | `(1200000,1200001,1) (1200000,1260001,2)` |
+| S5 `closing_strategy` decides idle keys | `r1-s5a` | key | **no record** |
+| | `r1-s5a` | partition | `(1200000, 1260001, 2)` |
+| | `r1-s5a` | current | `(1200000,1200001,1) (1200000,1260001,2)` |
+| | `r1-s5b` | key / partition | `(1200000, 1740001, 10)` |
+| S7 session survives a process restart | `r1-s7` | key / partition | `(0, 540001, 10)` — once, across a restart |
+| | | current | 10 updates, `start=0`, 5 before and 5 after the restart |
 
-`SEED_DELAY_SECONDS=120 < GRACE_MS=300000` is deliberate: every pre-seed record for a
-seeded device is still inside its grace window when its configuration lands, so outcome A
-covers the whole pre-seed set with no ragged edge.
+`seqs` is in **event-time** order, not arrival order: `Collect` stores values under
+`id=timestamp_ms` and reads them back in id order, which is why S2 and S3 expect
+`[0, 1, 3, 2]`.
 
-## How to read the result
+S5 is the whole point of the pair: one record present on `session-out-partition` and
+absent from `session-out-key`, from the same input. `grace_ms` is deliberately out of
+scope — it shifts the late bound and the close bound by the same constant and never
+changes which session an event joins, so it is left to the unit tests.
 
-**V0 — liveness, ten seconds.** Open `enriched-sensor-data` in the Portal; confirm rows
-with both `"arm":"buffered"` and `"arm":"control"`. Rules out the whole "nothing is
-running" class before anyone waits for a parquet flush.
+## Runbook
 
-**V1 — outcome census.**
+Prerequisites: `quix use testrig`. The deployments exist only after the first sync.
 
-```sql
-SELECT arm,
-       CASE WHEN device_id < 'device-050' THEN 'seeded' ELSE 'unseeded' END AS cohort,
-       resolved, COUNT(*) AS rows,
-       MIN(dwell_ms) AS dwell_min, ROUND(AVG(dwell_ms)) AS dwell_avg, MAX(dwell_ms) AS dwell_max
-FROM pr1110_grace_v1 WHERE run_id = 'r1'
-GROUP BY 1, 2, 3 ORDER BY 1, 2, 3;
-```
+1. **Pick `BASE_MS`.** `python -c "import time; print(int(time.time()*1000))"`. Put it in
+   the `Session Generator` block in `quix.yaml`. Keep it identical for all three phases.
+   On a rerun take a fresh value at least `2100000` ms (35 min) above the previous run's.
+2. **Commit and push `dev`.** Quix builds from the pushed branch; `quix.yaml` must be in
+   the same commit as the app directories, or the sync is rejected with "Reference should
+   have affected the workspace descriptor".
+3. **Sync.** `POST /workspaces/{ws}/pull`, then `quix cloud environments sync <ws>` (or
+   Portal → Pipeline → Sync). Without the pull, the sync compares the old commit to itself.
+4. **Wait** for three probes Running and the `Session Generator` Job Completed. The Job
+   auto-runs on creation with `PHASE=s7a`. The probes do not need to be up first:
+   `auto_offset_reset="earliest"` with a fresh consumer group reads from the beginning.
+5. **Verify the state volume** in each probe's log: `state_dir` must equal
+   `Quix__Deployment__State__Path`, and `Quix__Deployment__State__Enabled` must be `true`.
+   If `state_dir` is `state` or `/app/state` while the platform path differs, **stop
+   here** — the rig would still pass S7 via changelog recovery and prove nothing about
+   the volume.
+6. **Restart.** Wait ~20 s after the Job completes so the probes' checkpoints commit
+   (default `commit_interval` 5 s). Stop all three probes; poll until each reports
+   Stopped (SIGTERM shutdown can take a minute or more); start all three; poll until
+   Running and each log shows its state partitions opened / recovered.
+7. **Phase `s7b`.** The generator is Completed, so a PATCH is accepted (a PATCH against a
+   Running deployment is silently ignored). PATCH `PHASE=s7b`, start it, wait for
+   Completed.
+8. **Phase `main`.** PATCH `PHASE=main`, start it, wait for Completed.
+9. **Collect.** Wait ~30 s, then `python tools/collect_results.py --run-id r1`
+   (dependencies: `pip install -r tools/requirements.txt`; credentials come from the
+   untracked root `.env`). For the S4 evidence also grep each probe's log for
+   `LATE key=r1-s4`.
 
-Three assertions: `buffered/unseeded` has `dwell_min >= 300000`; every `control` row has
-`dwell_max < 100`; `buffered/seeded/resolved=false` and `buffered/unseeded/resolved=true`
-are both **empty**.
+## Reading the verdict
 
-**V2 — outcome A exists at all (the headline).**
+The collector prints a `scenario × probe` table of expected-vs-observed counts with a
+PASS or FAIL per cell, then every MISSING, UNEXPECTED, DUPLICATE and ORDER finding, then
+the counts of dropped closer-only and other-run records. `echo $LASTEXITCODE` is the
+machine-readable answer: 0 means every cell passed. Raw records land in
+`dev-planning/session-windows-live/results/<run-id>/<probe>.jsonl` (gitignored).
 
-```sql
-SELECT COUNT(*) AS outcome_a_rows, MIN(dwell_ms), MAX(dwell_ms),
-       COUNT(DISTINCT device_id) AS devices
-FROM pr1110_grace_v1
-WHERE run_id = 'r1' AND arm = 'buffered'
-  AND resolved = true AND dwell_ms >= 1000 AND threshold IS NOT NULL;
-```
+Closer-only records are expected and dropped: the generator places an artificial event
+(`seq = -1`) three gaps past a scenario's last real event, purely to close the real
+session. That event forms a one-event session of its own, which the collector discards.
 
-Expect ~1 200 rows over 50 devices, `max_dwell < 300000`. **Zero means the rig failed** —
-check the seeder's readback assertion and that both sinks were Running before T+120.
+"The branch works" means all seven acceptance criteria in spec §12 hold — in short:
+exactly 6 records on `session-out-key` and no `r1-s5a`; those 6 plus `r1-s5a` plus 4
+closer-only on `session-out-partition`; 42 updates in the given per-key order plus 6
+closer-only on `session-out-current`; the `r1-s7` record emitted exactly once across the
+restart; exactly one `on_late` per probe; the state-dir log line; and exit code 0.
 
-**V3 — the paired comparison. This table is the deliverable.**
+**S7 caveat:** S7 proves *state survives a restart*, not *state lived on the volume* — an
+ephemeral store rebuilt from the changelog would also pass. The volume is verified
+separately, by the startup log in runbook step 5.
 
-```sql
-SELECT b.device_id, b.seq,
-       c.resolved AS control_resolved, c.threshold AS control_threshold, c.dwell_ms AS control_dwell,
-       b.resolved AS buffered_resolved, b.threshold AS buffered_threshold, b.dwell_ms AS buffered_dwell
-FROM pr1110_grace_v1 b
-JOIN pr1110_grace_v1 c
-  ON b.run_id = c.run_id AND b.device_id = c.device_id AND b.seq = c.seq
-WHERE b.run_id = 'r1' AND b.arm = 'buffered' AND c.arm = 'control'
-  AND b.device_id < 'device-050' AND c.resolved = false
-ORDER BY b.device_id, b.seq LIMIT 50;
-```
+## Resetting for a rerun
 
-Every row must show `control_resolved=false, control_threshold=NULL, control_dwell<100`
-beside `buffered_resolved=true, buffered_threshold=10.0+<device index>,
-buffered_dwell>1000`. Zero rows means the arms never overlapped in `seq` — check that both
-consumer groups were fresh and both started before T+0.
+Bump `RUN_ID`, all three `CONSUMER_GROUP`s and `BASE_MS` together, then repeat from step
+2. A new consumer group gives each probe a fresh state directory (`StateStoreManager`
+roots the store at `state_dir / consumer_group`) and a fresh changelog; the new `RUN_ID`
+keeps the replayed old-run keys disjoint; the new `BASE_MS` keeps the partition watermark
+monotonic across the replay. A hard reset (delete and recreate the four topics) is only
+needed if a phase was accidentally run twice within one `RUN_ID`.
 
-**V4 — enrichment is real, not a constant.** `threshold` must equal `10.0 + <device
-index>` and `region` must cycle `eu-west, us-east, ap-south`. Rules out a lookup that
-resolves to one cached document for every key.
+Deployment names must be ones that have never existed in this workspace: deleting a
+deployment orphans its state volume, and a name collision re-attaches the stale one.
 
-**V5 — defaults are exactly the unbuffered behaviour.**
-`SELECT COUNT(*) FROM pr1110_grace_v1 WHERE run_id='r1' AND resolved=false AND NOT
-(threshold IS NULL AND region='unknown')` must be `0`.
+## Layout
 
-## Negative tests
-
-`tools/negative-tests/` — six construction- and build-time guards, runnable locally with
-no broker. Three more (overflow raise / drop-newest, missing state block) are deployment
-variants; see that directory's README. Run them **last and one at a time**, each with a
-fresh `RUN_ID` and fresh consumer groups.
-
-## Repo layout
-
-```
-quix.yaml                  pipeline descriptor: 7 deployments + 3 topics
-mongodb/                   Mongo 8.0.21 behind init.sh (verbatim copy)
-data-generator/            Service, forever, round-robin 100 devices
-config-seeder/             Job, sleeps then POSTs 50 configs with backdated valid_from
-lookup-sink/               the service under test, deployed twice
-lake-sink/                 QuixTSDataLakeSink -> pr1110_grace_v1
-tools/negative-tests/      local-only, not a deployment
-dev-planning/pr1110-grace-period/   spec.md, architecture.md
-```
+| path | what |
+|---|---|
+| `session-generator/` | the Job: 49-row scripted event table, one phase per run |
+| `session-probe/` | the one probe application, deployed three times |
+| `tools/collect_results.py` | the verdict script, run locally |
+| `quix.yaml` | four deployments, four one-partition topics |
+| `dev-planning/session-windows-live/` | spec, architecture notes, collector output |
+| `dev-planning/pr1110-grace-period/` | the previous rig's design history (its code is gone) |

@@ -1,8 +1,0 @@
-quixstreams[quixdatalake] @ git+https://github.com/quixio/quix-streams.git@579231eec4f56438235f656b23fae28153629459
-
-# The [quixdatalake] extra pulls a BARE `quixportal>=0.1.0`, whose cloud filesystem
-# backends (s3fs / adlfs / gcsfs) live behind its own `all` extra - so the extra alone
-# is not enough to write a byte to blob storage. This line is the canonical
-# lakehouse-sink sample's, kept verbatim including the Quix package index.
---extra-index-url https://pkgs.dev.azure.com/quix-analytics/53f7fe95-59fe-4307-b479-2473b96de6d1/_packaging/public/pypi/simple/
-quixportal[all]>=2.0.2
