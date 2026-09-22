@@ -21,3 +21,8 @@
 - step 8 ARCHITECTURE: dev-planning/session-windows-live/architecture.md (generator
   ordering/timestamps, probe mode split, state-dir resolution with app.py line numbers,
   collector matching rule, 5 deviations). BUILD COMPLETE - no commit, no deploy.
+- fix PARTITION-KEY BYTES: session-probe/main.py describe() now decodes a bytes key -
+  partition-mode expiry emits the raw store prefix (windows/session.py:293-295, same
+  contract as time_based.py:277-291), which crashed the Partition deployment on
+  key.partition("-"). Record schema unchanged and now identical across all three probes.
+  README "Output records" notes the prefix keying. No commit, no deploy.

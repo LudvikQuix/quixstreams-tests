@@ -59,8 +59,12 @@ def on_late(
     return True
 
 
-def describe(value: dict, key: str, timestamp: int, headers: Any) -> dict:
+def describe(value: dict, key: str | bytes, timestamp: int, headers: Any) -> dict:
     """Stamp a window result with the probe and the scenario it belongs to."""
+    # Partition-mode expiry keys each result by the raw store prefix
+    # (windows/session.py:293-295), so the key is bytes there and str in key mode.
+    if isinstance(key, bytes):
+        key = key.decode()
     run_id, _, scenario = key.partition("-")
     return {
         **value,
