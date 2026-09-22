@@ -18,27 +18,6 @@ deployments:
       enabled: true
       size: 1
     desiredStatus: Running
-    variables:
-      - name: input
-        value: session-in
-      - name: output
-        value: session-out-key
-      - name: PROBE
-        value: key
-      - name: EMIT_MODE
-        value: final
-      - name: CLOSING_STRATEGY
-        value: key
-      - name: GAP_MS
-        value: 120000
-      - name: GRACE_MS
-        value: 0
-      - name: STORE_NAME
-        value: sess
-      - name: CONSUMER_GROUP
-        value: sw_key_r1
-      - name: LOGLEVEL
-        value: INFO
   - name: Session Probe Partition
     application: session-probe
     version: latest
@@ -52,26 +31,14 @@ deployments:
       size: 1
     desiredStatus: Running
     variables:
-      - name: input
-        value: session-in
       - name: output
         value: session-out-partition
       - name: PROBE
         value: partition
-      - name: EMIT_MODE
-        value: final
       - name: CLOSING_STRATEGY
         value: partition
-      - name: GAP_MS
-        value: 120000
-      - name: GRACE_MS
-        value: 0
-      - name: STORE_NAME
-        value: sess
       - name: CONSUMER_GROUP
         value: sw_part_r1
-      - name: LOGLEVEL
-        value: INFO
   - name: Session Probe Current
     application: session-probe
     version: latest
@@ -85,26 +52,14 @@ deployments:
       size: 1
     desiredStatus: Running
     variables:
-      - name: input
-        value: session-in
       - name: output
         value: session-out-current
       - name: PROBE
         value: current
       - name: EMIT_MODE
         value: current
-      - name: CLOSING_STRATEGY
-        value: key
-      - name: GAP_MS
-        value: 120000
-      - name: GRACE_MS
-        value: 0
-      - name: STORE_NAME
-        value: sess
       - name: CONSUMER_GROUP
         value: sw_curr_r1
-      - name: LOGLEVEL
-        value: INFO
   - name: Session Generator
     application: session-generator
     version: latest
@@ -114,19 +69,8 @@ deployments:
         cpu: 200
         memory: 300
     variables:
-      - name: output
-        value: session-in
-      # s7a on creation: a newly created Job runs once immediately. The operator
-      # PATCHes this to s7b (after restarting the probes) and then to main.
-      - name: PHASE
-        value: s7a
-      # Set by the operator before the first sync - runbook step 1 - and kept
-      # IDENTICAL across all three phase runs. Blank means "use now", which is only
-      # valid for a single-phase run.
       - name: BASE_MS
         value: 1790079119719
-      - name: RUN_ID
-        value: r1
 
 # This section describes the Topics of the data pipeline
 topics:
@@ -146,3 +90,4 @@ topics:
     configuration:
       partitions: 1
       retentionInMinutes: 1440
+  - name: sensor-data
