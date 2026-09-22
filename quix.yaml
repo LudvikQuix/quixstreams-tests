@@ -17,7 +17,7 @@ deployments:
     state:
       enabled: true
       size: 1
-    desiredStatus: Stopped
+    desiredStatus: Running
   - name: Session Probe Partition
     application: session-probe
     version: latest
