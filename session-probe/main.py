@@ -61,8 +61,8 @@ def on_late(
 
 def describe(value: dict, key: str | bytes, timestamp: int, headers: Any) -> dict:
     """Stamp a window result with the probe and the scenario it belongs to."""
-    # Partition-mode expiry keys each result by the raw store prefix
-    # (windows/session.py:293-295), so the key is bytes there and str in key mode.
+    # Partition-mode expiry emits the raw store prefix as the message key
+    # (state/rocksdb/windowed/transaction.py:543,565); to_topic re-keys from "key".
     if isinstance(key, bytes):
         key = key.decode()
     run_id, _, scenario = key.partition("-")
@@ -137,7 +137,7 @@ def main() -> None:
 
     sdf = sdf.apply(describe, metadata=True)
     sdf.print(metadata=True)
-    sdf.to_topic(output_topic)
+    sdf.to_topic(output_topic, key=lambda value: value["key"])
 
     app.run()
 

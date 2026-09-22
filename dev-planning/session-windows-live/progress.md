@@ -26,3 +26,11 @@
   contract as time_based.py:277-291), which crashed the Partition deployment on
   key.partition("-"). Record schema unchanged and now identical across all three probes.
   README "Output records" notes the prefix keying. No commit, no deploy.
+- fix PARTITION-KEY BYTES (message key): describe() only fixed the record field - the
+  outgoing message key was still the raw store prefix, which the output topic's
+  key_serializer="str" hit with .encode() (r3, commit dfc464a0, zero records emitted).
+  session-probe/main.py now calls sdf.to_topic(output_topic, key=lambda value:
+  value["key"]); partition-mode expiry yields the prefix as key for every window type
+  (state/rocksdb/windowed/transaction.py:543,565), so this is a no-op for the key and
+  current probes, which already carry a str key. README sentence extended. No commit,
+  no deploy.

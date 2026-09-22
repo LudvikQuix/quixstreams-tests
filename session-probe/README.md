@@ -32,8 +32,9 @@ Each emitted record is the window result (`start`, `end`, `count`, and either `s
 `closing_strategy`, `key`, `run_id`, `scenario`, `span_seconds`. `run_id` and `scenario`
 are the message key split on its first hyphen, which is why `RUN_ID` must not contain one.
 In partition mode the window result is keyed by the raw store prefix (bytes) rather than
-the deserialized key, so `describe` decodes it and the emitted `key` is a `str` in all
-three deployments.
+the deserialized key, so `describe` decodes it and `to_topic(key=...)` re-keys the
+outgoing message from that field, which makes both the `key` stamp and the message key a
+`str` in all three deployments.
 
 A record with `seqs == [-1]` (or `count == 1` and `last_seq == -1` in current mode) is a
 closer session — the artificial event the generator places three gaps past a scenario's
